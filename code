@@ -1,0 +1,140 @@
+library(progress)
+library(tidyverse)
+
+#progress bar code
+pbarInit <- function(x){
+  
+  pbar <- progress_bar$new(format = "(:spin) [:bar] :percent [Elapsed time: :elapsedfull || You got this long: :eta]",
+                           
+                           total = x,
+                           
+                           complete = "\U0398",   # Completion bar character
+                           
+                           incomplete = "\U03A6", # Incomplete bar character
+                           
+                           current = "\U0394",    # Current bar character
+                           
+                           clear = FALSE,    # If TRUE, clears the bar when finish
+                           
+                           width = 100)      # Width of the progress bar
+  
+  return(pbar)
+  
+}
+
+##Time Dynamic Model--------
+
+#begin by defining a few terms
+Amax = 8  #maximum age
+Ymax = 100 #number of years
+
+#weight length equation
+alfa = 2.40991*10^-6  #W-L grams to mm
+bet = 3.38  
+
+#Mortality rates
+DisMort = 0.09
+
+#Stock Recruit
+Ro = 10000  #virgin recruitment (arbitrary)
+ 
+##Vulnerabilities
+Capsize = 204  #length at 50% vulnerability to capture
+CapsizeSD = Capsize*0.01  #SD for capture vul
+Uppercap = 380  #allows dome shaped vul to capture
+                  #set high for an asymptotic vul to
+                  #capture 
+
+UppercapSD = Uppercap*0.01 #SD for upper capture vul
+
+Harvlim = 204  #lower bound of harvest window limit
+HarvlimSD = Harvlim*0.01   #lower limit SD
+
+  
+Age = seq(1,Amax) #sequence age 1-8
+
+######-------------------######
+
+
+nsim=10000
+#creating a vector of fishing mortalities
+Ulist <- c(rep(0.3,nsim),rep(0.34,nsim),rep(0.5,nsim),
+           rep(0.57,nsim),rep(0.7,nsim),rep(0.79,nsim))
+#creating names to use later in figures
+Ulist_name <- factor(c(rep("30%",nsim),rep("34%",nsim),rep("50%",nsim),
+           rep("57%",nsim),rep("70%",nsim),rep("79%",nsim)))
+prior_name <- factor(c(rep("Prior Exploitation",nsim),rep("Inflated Exploitation",nsim),
+                       rep("Prior Exploitation",nsim),
+                       rep("Inflated Exploitation",nsim),rep("Prior Exploitation",nsim),
+                       rep("Inflated Exploitation",nsim)))
+exp.name <- factor(c(rep("Low",nsim*2),rep("Moderate",nsim*2),
+                       rep("High",nsim*2)),levels=c("Low","Moderate","High"))
+
+#creating vectors of growth parameters to run in the simulation
+Linflist <- c(rep(333,nsim*6),rep(353,nsim*6),rep(356,nsim*6))
+t0list <- c(rep(0.174,nsim*6),rep(0.197,nsim*6),rep(-0.056,nsim*6))
+Klist <- c(rep(0.325,nsim*6),rep(0.374,nsim*6),rep(0.691,nsim*6))
+Growlist<-factor(c(rep("Slow",nsim*6),rep("Moderate",nsim*6),rep("Fast",nsim*6)),
+                 levels=c("Slow","Moderate","Fast"))
+
+#Once we have all of our vectors, we combine them into one big data frame that we will run through the simulations for each exp and growth rate
+simdf <- data.frame(sim_number=rep(1:nsim,6),Uval=Ulist,Uval2=factor(Ulist),name=Ulist_name,
+                    Linf=Linflist,to=t0list,vbk=Klist,exp=exp.name,
+                    Grow=Growlist,prior=prior_name,
+                    YPR=rep(NA,nsim*6),SPR=rep(NA,nsim*6),Prop=rep(NA,nsim*6))
+
+#this pbar stuff is so we can keep track of the simulation progress
+pbar <- pbarInit(nrow(simdf))
+for(k in 1:nrow(simdf)){
+pbar$tick(0)
+N = matrix(NA,Ymax,Amax)  #create our year/age matrix filled with NA
+Wmat = (alfa*rnorm(1,200,20)^bet)/1000 #weight at maturity was kept fluid following a random normal distribution with mean of wt at 200 mm and sd of 20 mm
+Yield = rep(NA,Ymax)  #create a vector for yield each year
+SPRt = rep(NA,Ymax)  #create a vector for SPR each year
+TotCatch = rep(NA,Ymax)  #create a vector for total catch each year
+TrophyFish = rep(NA,Ymax)  #create a vector for Trophy catch each year
+YPR = rep(NA,Ymax) #create a vector for YPR each year
+Prop = rep(NA,Ymax) #create a vector for Prop mem size each year
+S = exp(-simdf$vbk[k])^(Age-1) #survival for natural mortality
+So = exp(-simdf$vbk[k]) #survival in percentage form
+N[1,1] = 10000 #unfished start at R0
+N[1,] = Ro*S  #gives unfished abundance in year 1
+Rcapacity = Ro*rlnorm(Ymax,0,sd=0.8) #simulates recruitment following lognormal distribution, mean of 0, CV of 0.8 (extremely variable recruitment)
+U = simdf$Uval[k] #fishing mortality
+Uo = simdf$Uval[k]+0.1 #catch 10% of fish thrown back
+TL = simdf$Linf[k]*(1-exp(-simdf$vbk[k]*(Age-simdf$to[k]))) #vonB equation
+Wt = (alfa*TL^bet)/1000  #wt in kg
+Fec = pmax(Wt-Wmat,0) #proxy used for fecundity
+Vulcap = 1/(1+exp(-(TL-Capsize)/CapsizeSD)) #vulnerability to capture
+Vulharv = 1/(1+exp(-(TL-Harvlim)/HarvlimSD)) #vulnerability to harvest
+#start loop with simulated recruitment
+for(i in 2:Ymax){
+  N[i,1]<-Rcapacity[i-1]
+  for(j in 2:Amax){
+    #capture vulnerabilities of memorable sized fish (says trophy but we just used this for 12" crappie)
+    trophyvul = (1/(1+exp(-(TL-305)/(305*0.1))))*Vulcap[j]
+    N[i,j]=N[i-1,j-1]*So*  #survival from natural mortality
+      (1-(Vulcap[j-1]*Uo-Vulharv[j-1]*U)*DisMort)*    #survival from discard mortality
+      (1-Vulharv[j-1]*U)  #survival from harvest
+    
+    Yield[i]=sum(Wt*Vulharv*(N[i,]))*U  #Yield each year
+    SPRt[i]=(sum(N[i,]*Fec))/(sum(N[1,]*Fec)) #SPR each year
+    TotCatch[i]=sum(Vulharv*(N[i,]))*U  #Total Catch each year
+    YPR[i]=(sum(Wt*Vulharv*(N[i,]))*U)/N[i,1] #YPR of each year
+    Prop[i]=sum(trophyvul*N[i,])/sum(N[i,]) #Prop of memorable fish each year
+  } #closing i
+  
+} #closing j
+SPRout = SPRt[50:Ymax] #output of SPR after remove first 50 years 'burnout'
+simdf$SPR[k] <- mean(SPRout) #each simulation runs 100 year timelines, SPR is taken for the last 50 years in the timelines
+
+
+YPRout = YPR[50:Ymax] #output of YPR after remove first 50 years 'burnout'
+simdf$YPR[k] <- mean(YPRout) #same as SPR
+
+
+Propout = Prop[50:Ymax] #output of TrophyFish after remove first 50 years 'burnout'
+simdf$Prop[k] <- mean(Propout) #same as SPR
+pbar$tick()
+}#End simulation loop
+
