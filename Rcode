@@ -47,7 +47,7 @@ Uppercap = 380  #allows dome shaped vul to capture
 
 UppercapSD = Uppercap*0.01 #SD for upper capture vul
 
-Harvlim = 204  #lower bound of harvest window limit
+Harvlim = 254 #lower bound of harvest window limit set to 10 inches for our models
 HarvlimSD = Harvlim*0.01   #lower limit SD
 
   
