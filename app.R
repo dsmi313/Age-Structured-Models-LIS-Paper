@@ -52,12 +52,16 @@ ui <- fluidPage(
       numericInput("harvlim", "Minimum Harvest Size (mm):",
                    value = 254, min = 150, max = 450),
 
-      checkboxInput("enable_slot", "Enable Slot Limit (Protective Slot)", value = FALSE),
+      checkboxInput("enable_slot", "Enable Slot Limit", value = FALSE),
       conditionalPanel(
         condition = "input.enable_slot == true",
-        numericInput("slot_upper", "Maximum Harvest Size (mm):",
-                     value = 380, min = 250, max = 500),
-        helpText(tags$small(tags$em("Fish between minimum and maximum are protected from harvest")))
+        radioButtons("slot_type", "Slot Type:",
+                     choices = c("Traditional (keep fish WITHIN slot)" = "traditional",
+                                 "Protective (protect fish WITHIN slot)" = "protective"),
+                     selected = "traditional"),
+        numericInput("slot_upper", "Maximum Size (mm):",
+                     value = 406, min = 250, max = 500),
+        helpText(tags$small(tags$em("Traditional: harvest ONLY between min-max. Protective: PROTECT between min-max")))
       ),
 
       # Mortality Parameters
@@ -213,16 +217,18 @@ server <- function(input, output, session) {
     updateSliderInput(session, "exploitation", value = 0.40)
     updateNumericInput(session, "harvlim", value = 254)  # 10 inches
     updateCheckboxInput(session, "enable_slot", value = TRUE)
+    updateRadioButtons(session, "slot_type", selected = "protective")
     updateNumericInput(session, "slot_upper", value = 380)  # 15 inches
-    showNotification("Loaded: Trophy Slot (U=40%, 10-15\" protected)", type = "message")
+    showNotification("Loaded: Trophy Slot (U=40%, protect 10-15\")", type = "message")
   })
 
   observeEvent(input$preset_harvest_slot, {
     updateSliderInput(session, "exploitation", value = 0.40)
     updateNumericInput(session, "harvlim", value = 305)  # 12 inches
     updateCheckboxInput(session, "enable_slot", value = TRUE)
+    updateRadioButtons(session, "slot_type", selected = "traditional")
     updateNumericInput(session, "slot_upper", value = 406)  # 16 inches
-    showNotification("Loaded: Harvest Slot (U=40%, 12-16\" only)", type = "message")
+    showNotification("Loaded: Harvest Slot (U=40%, keep 12-16\" only)", type = "message")
   })
 
   observeEvent(input$preset_reset, {
@@ -365,17 +371,21 @@ server <- function(input, output, session) {
 
         # Calculate harvest vulnerability with or without slot limit
         if(input$enable_slot) {
-          # Slot limit: protect fish between harvlim and slot_upper
           Slot_upper <- input$slot_upper
           Slot_upperSD <- Slot_upper * 0.01
 
-          # Lower logistic (vulnerable below harvlim)
-          Vulharv_lower <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
-          # Upper logistic (vulnerable above slot_upper)
-          Vulharv_upper <- 1 / (1 + exp(-(TL - Slot_upper) / Slot_upperSD))
+          # Logistic for minimum size (vulnerable above min)
+          Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+          # Logistic for maximum size (vulnerable below max)
+          Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
 
-          # Combined: vulnerable if below min OR above max
-          Vulharv <- pmax(Vulharv_lower - Vulharv_upper, 0)
+          if(input$slot_type == "traditional") {
+            # Traditional slot: harvest ONLY between min and max
+            Vulharv <- Vulharv_above_min * Vulharv_below_max
+          } else {
+            # Protective slot: PROTECT between min and max (harvest below min OR above max)
+            Vulharv <- pmax(Vulharv_above_min - (Vulharv_above_min * Vulharv_below_max), 0)
+          }
         } else {
           # Standard minimum length limit only
           Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
@@ -448,7 +458,11 @@ server <- function(input, output, session) {
     cat(sprintf("  Exploitation Rate (U): %.2f%%\n", input$exploitation * 100))
 
     if(input$enable_slot) {
-      cat(sprintf("  Slot Limit: %.1f - %.1f\" (%.0f - %.0f mm)\n",
+      slot_label <- ifelse(input$slot_type == "traditional",
+                           "Traditional Slot (keep",
+                           "Protective Slot (protect")
+      cat(sprintf("  %s %.1f - %.1f\"): %.0f - %.0f mm\n",
+                  slot_label,
                   input$harvlim / 25.4,
                   input$slot_upper / 25.4,
                   input$harvlim,
@@ -606,6 +620,7 @@ server <- function(input, output, session) {
       MLL_mm = input$harvlim,
       MLL_inches = round(input$harvlim / 25.4, 1),
       Slot_enabled = input$enable_slot,
+      Slot_type = ifelse(input$enable_slot, input$slot_type, NA),
       Slot_upper_mm = ifelse(input$enable_slot, input$slot_upper, NA),
       Slot_upper_inches = ifelse(input$enable_slot, round(input$slot_upper / 25.4, 1), NA),
       YPR_mean = mean(results$YPR, na.rm = TRUE),
@@ -659,8 +674,11 @@ server <- function(input, output, session) {
         cat(sprintf("%d. %s\n", i, scenarios$Scenario[i]))
 
         if(scenarios$Slot_enabled[i]) {
-          cat(sprintf("   U=%.2f%%, Slot Limit=%.1f-%.1f\", L∞=%.0f, K=%.3f\n",
+          slot_label <- ifelse(scenarios$Slot_type[i] == "traditional",
+                               "keep", "protect")
+          cat(sprintf("   U=%.2f%%, %s %.1f-%.1f\", L∞=%.0f, K=%.3f\n",
                       scenarios$Exploitation[i] * 100,
+                      slot_label,
                       scenarios$MLL_inches[i],
                       scenarios$Slot_upper_inches[i],
                       scenarios$Linf[i],
@@ -740,7 +758,9 @@ server <- function(input, output, session) {
 
     scenarios %>%
       mutate(Regulation = ifelse(Slot_enabled,
-                                  paste0(MLL_inches, "-", Slot_upper_inches, "\" slot"),
+                                  ifelse(Slot_type == "traditional",
+                                         paste0("keep ", MLL_inches, "-", Slot_upper_inches, "\""),
+                                         paste0("protect ", MLL_inches, "-", Slot_upper_inches, "\"")),
                                   paste0(MLL_inches, "\" min"))) %>%
       select(Scenario, Exploitation, Regulation, Linf, K,
              YPR_mean, SPR_mean, Prop_mean) %>%
@@ -825,17 +845,21 @@ server <- function(input, output, session) {
 
           # Calculate harvest vulnerability with or without slot limit
           if(input$enable_slot) {
-            # Slot limit: protect fish between harvlim and slot_upper
             Slot_upper <- input$slot_upper
             Slot_upperSD <- Slot_upper * 0.01
 
-            # Lower logistic (vulnerable below harvlim)
-            Vulharv_lower <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
-            # Upper logistic (vulnerable above slot_upper)
-            Vulharv_upper <- 1 / (1 + exp(-(TL - Slot_upper) / Slot_upperSD))
+            # Logistic for minimum size (vulnerable above min)
+            Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+            # Logistic for maximum size (vulnerable below max)
+            Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
 
-            # Combined: vulnerable if below min OR above max
-            Vulharv <- pmax(Vulharv_lower - Vulharv_upper, 0)
+            if(input$slot_type == "traditional") {
+              # Traditional slot: harvest ONLY between min and max
+              Vulharv <- Vulharv_above_min * Vulharv_below_max
+            } else {
+              # Protective slot: PROTECT between min and max (harvest below min OR above max)
+              Vulharv <- pmax(Vulharv_above_min - (Vulharv_above_min * Vulharv_below_max), 0)
+            }
           } else {
             # Standard minimum length limit only
             Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
