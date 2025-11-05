@@ -296,13 +296,14 @@ server <- function(input, output, session) {
     req(sim_results())
     results <- sim_results()
 
-    p <- ggplot(results, aes(x = YPR)) +
-      geom_histogram(bins = 30, fill = "steelblue", alpha = 0.7, color = "black") +
-      geom_vline(aes(xintercept = mean(YPR, na.rm = TRUE)),
-                 color = "red", linetype = "dashed", size = 1) +
+    p <- ggplot(results, aes(x = "", y = YPR)) +
+      geom_violin(fill = "steelblue", alpha = 0.7, color = "black") +
+      geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
+      stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
       labs(title = "Yield Per Recruit Distribution",
-           x = "YPR (kg)", y = "Frequency") +
-      theme_minimal()
+           x = "", y = "YPR (kg)") +
+      theme_minimal() +
+      theme(axis.text.x = element_blank())
 
     ggplotly(p)
   })
@@ -312,13 +313,14 @@ server <- function(input, output, session) {
     req(sim_results())
     results <- sim_results()
 
-    p <- ggplot(results, aes(x = SPR)) +
-      geom_histogram(bins = 30, fill = "darkgreen", alpha = 0.7, color = "black") +
-      geom_vline(aes(xintercept = mean(SPR, na.rm = TRUE)),
-                 color = "red", linetype = "dashed", size = 1) +
+    p <- ggplot(results, aes(x = "", y = SPR)) +
+      geom_violin(fill = "darkgreen", alpha = 0.7, color = "black") +
+      geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
+      stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
       labs(title = "Spawning Potential Ratio Distribution",
-           x = "SPR", y = "Frequency") +
-      theme_minimal()
+           x = "", y = "SPR") +
+      theme_minimal() +
+      theme(axis.text.x = element_blank())
 
     ggplotly(p)
   })
@@ -328,13 +330,14 @@ server <- function(input, output, session) {
     req(sim_results())
     results <- sim_results()
 
-    p <- ggplot(results, aes(x = Prop)) +
-      geom_histogram(bins = 30, fill = "orange", alpha = 0.7, color = "black") +
-      geom_vline(aes(xintercept = mean(Prop, na.rm = TRUE)),
-                 color = "red", linetype = "dashed", size = 1) +
+    p <- ggplot(results, aes(x = "", y = Prop)) +
+      geom_violin(fill = "orange", alpha = 0.7, color = "black") +
+      geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
+      stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
       labs(title = "Proportion of Memorable-Sized Fish (≥12 inches)",
-           x = "Proportion", y = "Frequency") +
-      theme_minimal()
+           x = "", y = "Proportion") +
+      theme_minimal() +
+      theme(axis.text.x = element_blank())
 
     ggplotly(p)
   })
