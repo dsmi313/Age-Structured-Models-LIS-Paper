@@ -20,6 +20,10 @@ ui <- fluidPage(
       ),
       fluidRow(
         column(6, actionButton("preset_liberal", "Liberal", class = "btn-sm btn-info", style = "width:100%")),
+        column(6, actionButton("preset_trophy_slot", "Trophy Slot", class = "btn-sm btn-success", style = "width:100%"))
+      ),
+      fluidRow(
+        column(6, actionButton("preset_harvest_slot", "Harvest Slot", class = "btn-sm btn-success", style = "width:100%")),
         column(6, actionButton("preset_reset", "Reset Defaults", class = "btn-sm btn-secondary", style = "width:100%"))
       ),
       br(),
@@ -46,7 +50,15 @@ ui <- fluidPage(
       numericInput("capsize", "Length at 50% Capture (mm):",
                    value = 204, min = 100, max = 300),
       numericInput("harvlim", "Minimum Harvest Size (mm):",
-                   value = 254, min = 150, max = 350),
+                   value = 254, min = 150, max = 450),
+
+      checkboxInput("enable_slot", "Enable Slot Limit (Protective Slot)", value = FALSE),
+      conditionalPanel(
+        condition = "input.enable_slot == true",
+        numericInput("slot_upper", "Maximum Harvest Size (mm):",
+                     value = 380, min = 250, max = 500),
+        helpText(tags$small(tags$em("Fish between minimum and maximum are protected from harvest")))
+      ),
 
       # Mortality Parameters
       h4("Mortality"),
@@ -193,7 +205,24 @@ server <- function(input, output, session) {
   observeEvent(input$preset_liberal, {
     updateSliderInput(session, "exploitation", value = 0.60)
     updateNumericInput(session, "harvlim", value = 203)  # 8 inches
+    updateCheckboxInput(session, "enable_slot", value = FALSE)
     showNotification("Loaded: Liberal (U=60%, MLL=8\")", type = "message")
+  })
+
+  observeEvent(input$preset_trophy_slot, {
+    updateSliderInput(session, "exploitation", value = 0.40)
+    updateNumericInput(session, "harvlim", value = 254)  # 10 inches
+    updateCheckboxInput(session, "enable_slot", value = TRUE)
+    updateNumericInput(session, "slot_upper", value = 380)  # 15 inches
+    showNotification("Loaded: Trophy Slot (U=40%, 10-15\" protected)", type = "message")
+  })
+
+  observeEvent(input$preset_harvest_slot, {
+    updateSliderInput(session, "exploitation", value = 0.40)
+    updateNumericInput(session, "harvlim", value = 305)  # 12 inches
+    updateCheckboxInput(session, "enable_slot", value = TRUE)
+    updateNumericInput(session, "slot_upper", value = 406)  # 16 inches
+    showNotification("Loaded: Harvest Slot (U=40%, 12-16\" only)", type = "message")
   })
 
   observeEvent(input$preset_reset, {
@@ -204,6 +233,7 @@ server <- function(input, output, session) {
     updateNumericInput(session, "dismort", value = 0.09)
     updateNumericInput(session, "nsim", value = 1000)
     updateNumericInput(session, "ymax", value = 100)
+    updateCheckboxInput(session, "enable_slot", value = FALSE)
     showNotification("Reset to default parameters", type = "message")
   })
 
@@ -332,7 +362,24 @@ server <- function(input, output, session) {
         Fec <- pmax(Wt - Wmat, 0)
 
         Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
-        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+
+        # Calculate harvest vulnerability with or without slot limit
+        if(input$enable_slot) {
+          # Slot limit: protect fish between harvlim and slot_upper
+          Slot_upper <- input$slot_upper
+          Slot_upperSD <- Slot_upper * 0.01
+
+          # Lower logistic (vulnerable below harvlim)
+          Vulharv_lower <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+          # Upper logistic (vulnerable above slot_upper)
+          Vulharv_upper <- 1 / (1 + exp(-(TL - Slot_upper) / Slot_upperSD))
+
+          # Combined: vulnerable if below min OR above max
+          Vulharv <- pmax(Vulharv_lower - Vulharv_upper, 0)
+        } else {
+          # Standard minimum length limit only
+          Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+        }
 
         for(i in 2:Ymax) {
           N[i, 1] <- Rcapacity[i - 1]
@@ -399,6 +446,19 @@ server <- function(input, output, session) {
     cat("==================\n\n")
     cat("Model Parameters:\n")
     cat(sprintf("  Exploitation Rate (U): %.2f%%\n", input$exploitation * 100))
+
+    if(input$enable_slot) {
+      cat(sprintf("  Slot Limit: %.1f - %.1f\" (%.0f - %.0f mm)\n",
+                  input$harvlim / 25.4,
+                  input$slot_upper / 25.4,
+                  input$harvlim,
+                  input$slot_upper))
+    } else {
+      cat(sprintf("  Minimum Length: %.1f\" (%.0f mm)\n",
+                  input$harvlim / 25.4,
+                  input$harvlim))
+    }
+
     cat(sprintf("  L∞: %.1f mm\n", input$linf))
     cat(sprintf("  K: %.3f\n", input$vbk))
     cat(sprintf("  t0: %.3f\n", input$t0))
@@ -545,6 +605,9 @@ server <- function(input, output, session) {
       t0 = input$t0,
       MLL_mm = input$harvlim,
       MLL_inches = round(input$harvlim / 25.4, 1),
+      Slot_enabled = input$enable_slot,
+      Slot_upper_mm = ifelse(input$enable_slot, input$slot_upper, NA),
+      Slot_upper_inches = ifelse(input$enable_slot, round(input$slot_upper / 25.4, 1), NA),
       YPR_mean = mean(results$YPR, na.rm = TRUE),
       YPR_sd = sd(results$YPR, na.rm = TRUE),
       SPR_mean = mean(results$SPR, na.rm = TRUE),
@@ -594,11 +657,22 @@ server <- function(input, output, session) {
       cat(sprintf("Total Scenarios: %d\n\n", nrow(scenarios)))
       for(i in 1:nrow(scenarios)) {
         cat(sprintf("%d. %s\n", i, scenarios$Scenario[i]))
-        cat(sprintf("   U=%.2f%%, MLL=%.1f\", L∞=%.0f, K=%.3f\n",
-                    scenarios$Exploitation[i] * 100,
-                    scenarios$MLL_inches[i],
-                    scenarios$Linf[i],
-                    scenarios$K[i]))
+
+        if(scenarios$Slot_enabled[i]) {
+          cat(sprintf("   U=%.2f%%, Slot Limit=%.1f-%.1f\", L∞=%.0f, K=%.3f\n",
+                      scenarios$Exploitation[i] * 100,
+                      scenarios$MLL_inches[i],
+                      scenarios$Slot_upper_inches[i],
+                      scenarios$Linf[i],
+                      scenarios$K[i]))
+        } else {
+          cat(sprintf("   U=%.2f%%, MLL=%.1f\", L∞=%.0f, K=%.3f\n",
+                      scenarios$Exploitation[i] * 100,
+                      scenarios$MLL_inches[i],
+                      scenarios$Linf[i],
+                      scenarios$K[i]))
+        }
+
         cat(sprintf("   YPR=%.4f, SPR=%.4f, Prop=%.4f\n\n",
                     scenarios$YPR_mean[i],
                     scenarios$SPR_mean[i],
@@ -665,11 +739,13 @@ server <- function(input, output, session) {
     req(nrow(scenarios) > 0)
 
     scenarios %>%
-      select(Scenario, Exploitation, MLL_inches, Linf, K,
+      mutate(Regulation = ifelse(Slot_enabled,
+                                  paste0(MLL_inches, "-", Slot_upper_inches, "\" slot"),
+                                  paste0(MLL_inches, "\" min"))) %>%
+      select(Scenario, Exploitation, Regulation, Linf, K,
              YPR_mean, SPR_mean, Prop_mean) %>%
       rename(
         `U (%)` = Exploitation,
-        `MLL (in)` = MLL_inches,
         `L∞` = Linf,
         `YPR` = YPR_mean,
         `SPR` = SPR_mean,
@@ -746,7 +822,24 @@ server <- function(input, output, session) {
           Fec <- pmax(Wt - Wmat, 0)
 
           Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
-          Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+
+          # Calculate harvest vulnerability with or without slot limit
+          if(input$enable_slot) {
+            # Slot limit: protect fish between harvlim and slot_upper
+            Slot_upper <- input$slot_upper
+            Slot_upperSD <- Slot_upper * 0.01
+
+            # Lower logistic (vulnerable below harvlim)
+            Vulharv_lower <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+            # Upper logistic (vulnerable above slot_upper)
+            Vulharv_upper <- 1 / (1 + exp(-(TL - Slot_upper) / Slot_upperSD))
+
+            # Combined: vulnerable if below min OR above max
+            Vulharv <- pmax(Vulharv_lower - Vulharv_upper, 0)
+          } else {
+            # Standard minimum length limit only
+            Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+          }
 
           for(i in 2:Ymax) {
             N[i, 1] <- Rcapacity[i - 1]
