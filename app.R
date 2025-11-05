@@ -46,7 +46,18 @@ ui <- fluidPage(
       actionButton("run_sim", "Run Simulation", class = "btn-primary"),
       br(),
       br(),
-      downloadButton("download_results", "Download Results")
+
+      # Scenario Comparison
+      h4("Scenario Comparison"),
+      textInput("scenario_name", "Scenario Name:", value = ""),
+      actionButton("save_scenario", "Save Scenario for Comparison", class = "btn-success"),
+      br(),
+      br(),
+      actionButton("clear_scenarios", "Clear All Scenarios", class = "btn-warning"),
+      br(),
+      br(),
+      downloadButton("download_results", "Download Current Results"),
+      downloadButton("download_comparison", "Download Comparison")
     ),
 
     mainPanel(
@@ -70,6 +81,20 @@ ui <- fluidPage(
                  br(),
                  plotlyOutput("pop_structure", height = "500px"),
                  plotlyOutput("vulnerability_plot", height = "400px")
+        ),
+
+        tabPanel("Compare Scenarios",
+                 br(),
+                 h4("Saved Scenarios"),
+                 verbatimTextOutput("scenarios_list"),
+                 br(),
+                 h4("Comparison Plots"),
+                 plotlyOutput("compare_ypr", height = "400px"),
+                 plotlyOutput("compare_spr", height = "400px"),
+                 plotlyOutput("compare_prop", height = "400px"),
+                 br(),
+                 h4("Summary Table"),
+                 tableOutput("compare_table")
         ),
 
         tabPanel("About",
@@ -113,6 +138,7 @@ server <- function(input, output, session) {
   sim_results <- reactiveVal(NULL)
   time_series_data <- reactiveVal(NULL)
   pop_structure_data <- reactiveVal(NULL)
+  saved_scenarios <- reactiveVal(data.frame())
 
   # Observer to update growth parameters when preset is selected
   observeEvent(input$growth_preset, {
@@ -399,6 +425,161 @@ server <- function(input, output, session) {
     ggplotly(p)
   })
 
+  # Save scenario for comparison
+  observeEvent(input$save_scenario, {
+    req(sim_results())
+    results <- sim_results()
+
+    # Create scenario name
+    scenario_name <- if(input$scenario_name != "") {
+      input$scenario_name
+    } else {
+      paste0("Scenario_", nrow(saved_scenarios()) + 1)
+    }
+
+    # Create summary row for this scenario
+    new_scenario <- data.frame(
+      Scenario = scenario_name,
+      Exploitation = input$exploitation,
+      Linf = input$linf,
+      K = input$vbk,
+      t0 = input$t0,
+      MLL_mm = input$harvlim,
+      MLL_inches = round(input$harvlim / 25.4, 1),
+      YPR_mean = mean(results$YPR, na.rm = TRUE),
+      YPR_sd = sd(results$YPR, na.rm = TRUE),
+      SPR_mean = mean(results$SPR, na.rm = TRUE),
+      SPR_sd = sd(results$SPR, na.rm = TRUE),
+      Prop_mean = mean(results$Prop, na.rm = TRUE),
+      Prop_sd = sd(results$Prop, na.rm = TRUE),
+      stringsAsFactors = FALSE
+    )
+
+    # Add full results for violin plots
+    results$Scenario <- scenario_name
+
+    # Update saved scenarios
+    current_scenarios <- saved_scenarios()
+    if(nrow(current_scenarios) == 0) {
+      current_scenarios <- new_scenario
+    } else {
+      current_scenarios <- rbind(current_scenarios, new_scenario)
+    }
+    saved_scenarios(current_scenarios)
+
+    # Store detailed results for plotting
+    if(!exists("detailed_results")) {
+      detailed_results <<- results
+    } else {
+      detailed_results <<- rbind(detailed_results, results)
+    }
+
+    showNotification(paste("Saved:", scenario_name), type = "message")
+  })
+
+  # Clear all scenarios
+  observeEvent(input$clear_scenarios, {
+    saved_scenarios(data.frame())
+    if(exists("detailed_results")) {
+      rm(detailed_results, envir = .GlobalEnv)
+    }
+    showNotification("All scenarios cleared", type = "warning")
+  })
+
+  # Display saved scenarios
+  output$scenarios_list <- renderPrint({
+    scenarios <- saved_scenarios()
+    if(nrow(scenarios) == 0) {
+      cat("No scenarios saved yet.\n")
+      cat("Run a simulation and click 'Save Scenario for Comparison'")
+    } else {
+      cat(sprintf("Total Scenarios: %d\n\n", nrow(scenarios)))
+      for(i in 1:nrow(scenarios)) {
+        cat(sprintf("%d. %s\n", i, scenarios$Scenario[i]))
+        cat(sprintf("   U=%.2f%%, MLL=%.1f\", L∞=%.0f, K=%.3f\n",
+                    scenarios$Exploitation[i] * 100,
+                    scenarios$MLL_inches[i],
+                    scenarios$Linf[i],
+                    scenarios$K[i]))
+        cat(sprintf("   YPR=%.4f, SPR=%.4f, Prop=%.4f\n\n",
+                    scenarios$YPR_mean[i],
+                    scenarios$SPR_mean[i],
+                    scenarios$Prop_mean[i]))
+      }
+    }
+  })
+
+  # Comparison plots
+  output$compare_ypr <- renderPlotly({
+    req(exists("detailed_results"))
+
+    p <- ggplot(detailed_results, aes(x = Scenario, y = YPR, fill = Scenario)) +
+      geom_violin(alpha = 0.7) +
+      geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
+      stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
+      labs(title = "YPR Comparison Across Scenarios",
+           x = "Scenario", y = "YPR (kg)") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none")
+
+    ggplotly(p)
+  })
+
+  output$compare_spr <- renderPlotly({
+    req(exists("detailed_results"))
+
+    p <- ggplot(detailed_results, aes(x = Scenario, y = SPR, fill = Scenario)) +
+      geom_violin(alpha = 0.7) +
+      geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
+      stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
+      labs(title = "SPR Comparison Across Scenarios",
+           x = "Scenario", y = "SPR") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none")
+
+    ggplotly(p)
+  })
+
+  output$compare_prop <- renderPlotly({
+    req(exists("detailed_results"))
+
+    p <- ggplot(detailed_results, aes(x = Scenario, y = Prop, fill = Scenario)) +
+      geom_violin(alpha = 0.7) +
+      geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
+      stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
+      labs(title = "Proportion Memorable Fish Comparison",
+           x = "Scenario", y = "Proportion") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1),
+            legend.position = "none")
+
+    ggplotly(p)
+  })
+
+  # Comparison table
+  output$compare_table <- renderTable({
+    scenarios <- saved_scenarios()
+    req(nrow(scenarios) > 0)
+
+    scenarios %>%
+      select(Scenario, Exploitation, MLL_inches, Linf, K,
+             YPR_mean, SPR_mean, Prop_mean) %>%
+      rename(
+        `U (%)` = Exploitation,
+        `MLL (in)` = MLL_inches,
+        `L∞` = Linf,
+        `YPR` = YPR_mean,
+        `SPR` = SPR_mean,
+        `Prop Memorable` = Prop_mean
+      ) %>%
+      mutate(`U (%)` = round(`U (%)` * 100, 1),
+             YPR = round(YPR, 4),
+             SPR = round(SPR, 4),
+             `Prop Memorable` = round(`Prop Memorable`, 4))
+  }, striped = TRUE, hover = TRUE, bordered = TRUE)
+
   # Download results
   output$download_results <- downloadHandler(
     filename = function() {
@@ -407,6 +588,18 @@ server <- function(input, output, session) {
     content = function(file) {
       req(sim_results())
       write.csv(sim_results(), file, row.names = FALSE)
+    }
+  )
+
+  # Download comparison
+  output$download_comparison <- downloadHandler(
+    filename = function() {
+      paste0("crappie_comparison_", Sys.Date(), ".csv")
+    },
+    content = function(file) {
+      scenarios <- saved_scenarios()
+      req(nrow(scenarios) > 0)
+      write.csv(scenarios, file, row.names = FALSE)
     }
   )
 }
