@@ -12,8 +12,21 @@ ui <- fluidPage(
     sidebarPanel(
       h3("Model Parameters"),
 
+      # Preset Management Scenarios
+      h4("Quick Load Scenarios"),
+      fluidRow(
+        column(6, actionButton("preset_conservative", "Conservative", class = "btn-sm btn-info", style = "width:100%")),
+        column(6, actionButton("preset_moderate", "Moderate", class = "btn-sm btn-info", style = "width:100%"))
+      ),
+      fluidRow(
+        column(6, actionButton("preset_liberal", "Liberal", class = "btn-sm btn-info", style = "width:100%")),
+        column(6, actionButton("preset_reset", "Reset Defaults", class = "btn-sm btn-secondary", style = "width:100%"))
+      ),
+      br(),
+
       # Growth Parameters
       h4("Growth Parameters (von Bertalanffy)"),
+      helpText(tags$small(tags$em("L∞ = max length, K = growth rate, t0 = age at length 0"))),
       selectInput("growth_preset", "Load Preset:",
                   choices = c("Custom" = "custom", "Slow" = "slow", "Moderate" = "moderate", "Fast" = "fast"),
                   selected = "moderate"),
@@ -23,11 +36,13 @@ ui <- fluidPage(
 
       # Exploitation Parameters
       h4("Exploitation Parameters"),
+      helpText(tags$small(tags$em("U = proportion of harvestable fish removed annually"))),
       sliderInput("exploitation", "Exploitation Rate (U):",
                   min = 0.0, max = 1.0, value = 0.34, step = 0.01),
 
       # Vulnerability Parameters
       h4("Vulnerability & Selectivity"),
+      helpText(tags$small(tags$em("Size at which fish become vulnerable to gear and regulations"))),
       numericInput("capsize", "Length at 50% Capture (mm):",
                    value = 204, min = 100, max = 300),
       numericInput("harvlim", "Minimum Harvest Size (mm):",
@@ -35,6 +50,7 @@ ui <- fluidPage(
 
       # Mortality Parameters
       h4("Mortality"),
+      helpText(tags$small(tags$em("Proportion of released fish that die"))),
       numericInput("dismort", "Discard Mortality Rate:",
                    value = 0.09, min = 0.0, max = 1.0, step = 0.01),
 
@@ -54,6 +70,8 @@ ui <- fluidPage(
       textInput("scenario_name", "Scenario Name:", value = ""),
       actionButton("save_scenario", "Save Scenario for Comparison", class = "btn-success"),
       br(),
+      br(),
+      uiOutput("scenario_delete_ui"),
       br(),
       actionButton("clear_scenarios", "Clear All Scenarios", class = "btn-warning"),
       br(),
@@ -99,6 +117,21 @@ ui <- fluidPage(
                  tableOutput("compare_table")
         ),
 
+        tabPanel("Yield Curves",
+                 br(),
+                 h4("Yield Per Recruit vs Exploitation Rate"),
+                 helpText("Shows how YPR and SPR respond to different exploitation rates with current growth and selectivity parameters.
+                          Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished)."),
+                 br(),
+                 sliderInput("yield_curve_nsim", "Number of Simulations per Point:",
+                             min = 100, max = 2000, value = 500, step = 100),
+                 actionButton("run_yield_curve", "Generate Yield Curve", class = "btn-primary"),
+                 br(),
+                 br(),
+                 plotlyOutput("yield_curve_plot", height = "400px"),
+                 plotlyOutput("spr_curve_plot", height = "400px")
+        ),
+
         tabPanel("About",
                  br(),
                  h3("Crappie Age-Structured Model"),
@@ -142,6 +175,69 @@ server <- function(input, output, session) {
   pop_structure_data <- reactiveVal(NULL)
   saved_scenarios <- reactiveVal(data.frame())
   detailed_results <- reactiveVal(data.frame())
+  yield_curve_data <- reactiveVal(NULL)
+
+  # Preset Management Scenarios
+  observeEvent(input$preset_conservative, {
+    updateSliderInput(session, "exploitation", value = 0.25)
+    updateNumericInput(session, "harvlim", value = 305)  # 12 inches
+    showNotification("Loaded: Conservative (U=25%, MLL=12\")", type = "message")
+  })
+
+  observeEvent(input$preset_moderate, {
+    updateSliderInput(session, "exploitation", value = 0.40)
+    updateNumericInput(session, "harvlim", value = 254)  # 10 inches
+    showNotification("Loaded: Moderate (U=40%, MLL=10\")", type = "message")
+  })
+
+  observeEvent(input$preset_liberal, {
+    updateSliderInput(session, "exploitation", value = 0.60)
+    updateNumericInput(session, "harvlim", value = 203)  # 8 inches
+    showNotification("Loaded: Liberal (U=60%, MLL=8\")", type = "message")
+  })
+
+  observeEvent(input$preset_reset, {
+    updateSelectInput(session, "growth_preset", selected = "moderate")
+    updateSliderInput(session, "exploitation", value = 0.34)
+    updateNumericInput(session, "harvlim", value = 254)
+    updateNumericInput(session, "capsize", value = 204)
+    updateNumericInput(session, "dismort", value = 0.09)
+    updateNumericInput(session, "nsim", value = 1000)
+    updateNumericInput(session, "ymax", value = 100)
+    showNotification("Reset to default parameters", type = "message")
+  })
+
+  # Dynamic UI for deleting individual scenarios
+  output$scenario_delete_ui <- renderUI({
+    scenarios <- saved_scenarios()
+    if(nrow(scenarios) == 0) return(NULL)
+
+    selectInput("scenario_to_delete", "Delete Scenario:",
+                choices = c("Select scenario..." = "", scenarios$Scenario),
+                selectize = TRUE)
+  })
+
+  # Delete individual scenario
+  observeEvent(input$scenario_to_delete, {
+    req(input$scenario_to_delete != "")
+
+    scenario_name <- input$scenario_to_delete
+
+    # Remove from saved scenarios
+    scenarios <- saved_scenarios()
+    scenarios <- scenarios[scenarios$Scenario != scenario_name, ]
+    saved_scenarios(scenarios)
+
+    # Remove from detailed results
+    details <- detailed_results()
+    details <- details[details$Scenario != scenario_name, ]
+    detailed_results(details)
+
+    showNotification(paste("Deleted:", scenario_name), type = "warning")
+
+    # Reset the selector
+    updateSelectInput(session, "scenario_to_delete", selected = "")
+  })
 
   # Observer to update growth parameters when preset is selected
   observeEvent(input$growth_preset, {
@@ -584,6 +680,147 @@ server <- function(input, output, session) {
              SPR = round(SPR, 4),
              `Prop Memorable` = round(`Prop Memorable`, 4))
   }, striped = TRUE, hover = TRUE, bordered = TRUE)
+
+  # Yield Curve Generation
+  observeEvent(input$run_yield_curve, {
+    withProgress(message = 'Generating yield curve...', value = 0, {
+
+      growth_params <- get_growth_params()
+      Amax <- 8
+      Ymax <- input$ymax
+
+      # Weight-length equation
+      alfa <- 2.40991e-6
+      bet <- 3.38
+
+      # Mortality
+      DisMort <- input$dismort
+
+      # Stock-recruit
+      Ro <- 10000
+
+      # Vulnerabilities (use current settings)
+      Capsize <- input$capsize
+      CapsizeSD <- Capsize * 0.01
+      Uppercap <- 380
+      UppercapSD <- Uppercap * 0.01
+      Harvlim <- input$harvlim
+      HarvlimSD <- Harvlim * 0.01
+
+      Age <- seq(1, Amax)
+
+      # Test exploitation rates from 0 to 1
+      U_values <- seq(0, 1, by = 0.05)
+      nsim <- input$yield_curve_nsim
+
+      curve_results <- data.frame()
+
+      for(u_idx in seq_along(U_values)) {
+        incProgress(1/length(U_values), detail = paste("U =", round(U_values[u_idx], 2)))
+
+        U_test <- U_values[u_idx]
+        ypr_vals <- numeric(nsim)
+        spr_vals <- numeric(nsim)
+        prop_vals <- numeric(nsim)
+
+        for(k in 1:nsim) {
+          N <- matrix(NA, Ymax, Amax)
+          Wmat <- (alfa * rnorm(1, 200, 20)^bet) / 1000
+          YPR <- rep(NA, Ymax)
+          SPRt <- rep(NA, Ymax)
+          Prop <- rep(NA, Ymax)
+
+          S <- exp(-growth_params$vbk)^(Age - 1)
+          So <- exp(-growth_params$vbk)
+
+          N[1, 1] <- 10000
+          N[1, ] <- Ro * S
+
+          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = 0.8)
+
+          U <- U_test
+          Uo <- U_test + 0.1
+
+          TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
+          Wt <- (alfa * TL^bet) / 1000
+          Fec <- pmax(Wt - Wmat, 0)
+
+          Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+          Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+
+          for(i in 2:Ymax) {
+            N[i, 1] <- Rcapacity[i - 1]
+            for(j in 2:Amax) {
+              trophyvul <- (1 / (1 + exp(-(TL - 305) / (305 * 0.1)))) * Vulcap[j]
+
+              N[i, j] <- N[i-1, j-1] * So *
+                (1 - (Vulcap[j-1] * Uo - Vulharv[j-1] * U) * DisMort) *
+                (1 - Vulharv[j-1] * U)
+
+              YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
+              SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
+              Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
+            }
+          }
+
+          ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
+          spr_vals[k] <- mean(SPRt[50:Ymax], na.rm = TRUE)
+          prop_vals[k] <- mean(Prop[50:Ymax], na.rm = TRUE)
+        }
+
+        curve_results <- rbind(curve_results, data.frame(
+          U = U_test,
+          YPR_mean = mean(ypr_vals, na.rm = TRUE),
+          YPR_sd = sd(ypr_vals, na.rm = TRUE),
+          SPR_mean = mean(spr_vals, na.rm = TRUE),
+          SPR_sd = sd(spr_vals, na.rm = TRUE),
+          Prop_mean = mean(prop_vals, na.rm = TRUE)
+        ))
+      }
+
+      yield_curve_data(curve_results)
+    })
+  })
+
+  # Yield curve plot
+  output$yield_curve_plot <- renderPlotly({
+    curve_data <- yield_curve_data()
+    req(!is.null(curve_data))
+
+    p <- ggplot(curve_data, aes(x = U * 100, y = YPR_mean)) +
+      geom_line(color = "steelblue", size = 1.5) +
+      geom_ribbon(aes(ymin = YPR_mean - YPR_sd, ymax = YPR_mean + YPR_sd),
+                  alpha = 0.2, fill = "steelblue") +
+      geom_point(color = "steelblue", size = 2) +
+      labs(title = "Yield Per Recruit vs Exploitation Rate",
+           x = "Exploitation Rate (%)",
+           y = "YPR (kg)") +
+      theme_minimal()
+
+    ggplotly(p)
+  })
+
+  # SPR curve plot
+  output$spr_curve_plot <- renderPlotly({
+    curve_data <- yield_curve_data()
+    req(!is.null(curve_data))
+
+    p <- ggplot(curve_data, aes(x = U * 100, y = SPR_mean)) +
+      geom_line(color = "darkgreen", size = 1.5) +
+      geom_ribbon(aes(ymin = SPR_mean - SPR_sd, ymax = SPR_mean + SPR_sd),
+                  alpha = 0.2, fill = "darkgreen") +
+      geom_point(color = "darkgreen", size = 2) +
+      geom_hline(yintercept = 0.40, linetype = "dashed", color = "orange", size = 1) +
+      geom_hline(yintercept = 0.30, linetype = "dashed", color = "red", size = 1) +
+      annotate("text", x = 90, y = 0.42, label = "SPR = 40% (Sustainable)", color = "orange", size = 3) +
+      annotate("text", x = 90, y = 0.32, label = "SPR = 30% (Overfished)", color = "red", size = 3) +
+      labs(title = "Spawning Potential Ratio vs Exploitation Rate",
+           x = "Exploitation Rate (%)",
+           y = "SPR") +
+      theme_minimal()
+
+    ggplotly(p)
+  })
 
   # Download results
   output$download_results <- downloadHandler(
