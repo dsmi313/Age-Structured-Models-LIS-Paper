@@ -1,5 +1,7 @@
 library(shiny)
-library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
 library(plotly)
 
 # UI Definition
