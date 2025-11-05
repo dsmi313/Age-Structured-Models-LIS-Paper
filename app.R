@@ -12,16 +12,12 @@ ui <- fluidPage(
 
       # Growth Parameters
       h4("Growth Parameters (von Bertalanffy)"),
-      selectInput("growth_rate", "Growth Rate:",
-                  choices = c("Slow" = "slow", "Moderate" = "moderate", "Fast" = "fast"),
+      selectInput("growth_preset", "Load Preset:",
+                  choices = c("Custom" = "custom", "Slow" = "slow", "Moderate" = "moderate", "Fast" = "fast"),
                   selected = "moderate"),
-
-      conditionalPanel(
-        condition = "input.growth_rate == 'custom'",
-        numericInput("linf", "L∞ (mm):", value = 353, min = 250, max = 400),
-        numericInput("vbk", "K:", value = 0.374, min = 0.1, max = 1.0, step = 0.01),
-        numericInput("t0", "t0:", value = 0.197, min = -0.5, max = 1.0, step = 0.01)
-      ),
+      numericInput("linf", "L∞ (mm):", value = 353, min = 250, max = 450, step = 1),
+      numericInput("vbk", "K:", value = 0.374, min = 0.01, max = 1.5, step = 0.001),
+      numericInput("t0", "t0:", value = 0.197, min = -1.0, max = 2.0, step = 0.001),
 
       # Exploitation Parameters
       h4("Exploitation Parameters"),
@@ -118,17 +114,27 @@ server <- function(input, output, session) {
   time_series_data <- reactiveVal(NULL)
   pop_structure_data <- reactiveVal(NULL)
 
-  # Get growth parameters based on selection
-  get_growth_params <- reactive({
-    if (input$growth_rate == "slow") {
-      list(Linf = 333, vbk = 0.325, t0 = 0.174)
-    } else if (input$growth_rate == "moderate") {
-      list(Linf = 353, vbk = 0.374, t0 = 0.197)
-    } else if (input$growth_rate == "fast") {
-      list(Linf = 356, vbk = 0.691, t0 = -0.056)
-    } else {
-      list(Linf = input$linf, vbk = input$vbk, t0 = input$t0)
+  # Observer to update growth parameters when preset is selected
+  observeEvent(input$growth_preset, {
+    if (input$growth_preset == "slow") {
+      updateNumericInput(session, "linf", value = 333)
+      updateNumericInput(session, "vbk", value = 0.325)
+      updateNumericInput(session, "t0", value = 0.174)
+    } else if (input$growth_preset == "moderate") {
+      updateNumericInput(session, "linf", value = 353)
+      updateNumericInput(session, "vbk", value = 0.374)
+      updateNumericInput(session, "t0", value = 0.197)
+    } else if (input$growth_preset == "fast") {
+      updateNumericInput(session, "linf", value = 356)
+      updateNumericInput(session, "vbk", value = 0.691)
+      updateNumericInput(session, "t0", value = -0.056)
     }
+    # If "custom" is selected, don't update anything - user will enter their own values
+  })
+
+  # Get growth parameters from inputs
+  get_growth_params <- reactive({
+    list(Linf = input$linf, vbk = input$vbk, t0 = input$t0)
   })
 
   # Run simulation when button is clicked
@@ -266,9 +272,12 @@ server <- function(input, output, session) {
 
     cat("SIMULATION SUMMARY\n")
     cat("==================\n\n")
-    cat(sprintf("Exploitation Rate: %.2f%%\n", input$exploitation * 100))
-    cat(sprintf("Growth Rate: %s\n", input$growth_rate))
-    cat(sprintf("Number of Simulations: %d\n\n", input$nsim))
+    cat("Model Parameters:\n")
+    cat(sprintf("  Exploitation Rate (U): %.2f%%\n", input$exploitation * 100))
+    cat(sprintf("  L∞: %.1f mm\n", input$linf))
+    cat(sprintf("  K: %.3f\n", input$vbk))
+    cat(sprintf("  t0: %.3f\n", input$t0))
+    cat(sprintf("  Number of Simulations: %d\n\n", input$nsim))
 
     cat("Results (Mean ± SD):\n")
     cat(sprintf("  YPR:              %.4f ± %.4f kg\n",
