@@ -139,6 +139,7 @@ server <- function(input, output, session) {
   time_series_data <- reactiveVal(NULL)
   pop_structure_data <- reactiveVal(NULL)
   saved_scenarios <- reactiveVal(data.frame())
+  detailed_results <- reactiveVal(data.frame())
 
   # Observer to update growth parameters when preset is selected
   observeEvent(input$growth_preset, {
@@ -468,10 +469,11 @@ server <- function(input, output, session) {
     saved_scenarios(current_scenarios)
 
     # Store detailed results for plotting
-    if(!exists("detailed_results")) {
-      detailed_results <<- results
+    current_detailed <- detailed_results()
+    if(nrow(current_detailed) == 0) {
+      detailed_results(results)
     } else {
-      detailed_results <<- rbind(detailed_results, results)
+      detailed_results(rbind(current_detailed, results))
     }
 
     showNotification(paste("Saved:", scenario_name), type = "message")
@@ -480,9 +482,7 @@ server <- function(input, output, session) {
   # Clear all scenarios
   observeEvent(input$clear_scenarios, {
     saved_scenarios(data.frame())
-    if(exists("detailed_results")) {
-      rm(detailed_results, envir = .GlobalEnv)
-    }
+    detailed_results(data.frame())
     showNotification("All scenarios cleared", type = "warning")
   })
 
@@ -511,9 +511,10 @@ server <- function(input, output, session) {
 
   # Comparison plots
   output$compare_ypr <- renderPlotly({
-    req(exists("detailed_results"))
+    details <- detailed_results()
+    req(nrow(details) > 0)
 
-    p <- ggplot(detailed_results, aes(x = Scenario, y = YPR, fill = Scenario)) +
+    p <- ggplot(details, aes(x = Scenario, y = YPR, fill = Scenario)) +
       geom_violin(alpha = 0.7) +
       geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
       stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
@@ -527,9 +528,10 @@ server <- function(input, output, session) {
   })
 
   output$compare_spr <- renderPlotly({
-    req(exists("detailed_results"))
+    details <- detailed_results()
+    req(nrow(details) > 0)
 
-    p <- ggplot(detailed_results, aes(x = Scenario, y = SPR, fill = Scenario)) +
+    p <- ggplot(details, aes(x = Scenario, y = SPR, fill = Scenario)) +
       geom_violin(alpha = 0.7) +
       geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
       stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
@@ -543,9 +545,10 @@ server <- function(input, output, session) {
   })
 
   output$compare_prop <- renderPlotly({
-    req(exists("detailed_results"))
+    details <- detailed_results()
+    req(nrow(details) > 0)
 
-    p <- ggplot(detailed_results, aes(x = Scenario, y = Prop, fill = Scenario)) +
+    p <- ggplot(details, aes(x = Scenario, y = Prop, fill = Scenario)) +
       geom_violin(alpha = 0.7) +
       geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
       stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
