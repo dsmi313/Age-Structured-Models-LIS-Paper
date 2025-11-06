@@ -1051,7 +1051,7 @@ server <- function(input, output, session) {
   # Download results
   output$download_results <- downloadHandler(
     filename = function() {
-      paste0("crappie_simulation_", Sys.Date(), ".csv")
+      paste0("simulation_", Sys.Date(), ".csv")
     },
     content = function(file) {
       req(sim_results())
@@ -1062,7 +1062,7 @@ server <- function(input, output, session) {
   # Download comparison
   output$download_comparison <- downloadHandler(
     filename = function() {
-      paste0("crappie_comparison_", Sys.Date(), ".csv")
+      paste0("comparison_", Sys.Date(), ".csv")
     },
     content = function(file) {
       scenarios <- saved_scenarios()
