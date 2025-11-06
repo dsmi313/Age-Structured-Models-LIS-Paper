@@ -462,9 +462,9 @@ server <- function(input, output, session) {
         # Calculate harvest vulnerability with or without slot limit
         if(input$enable_slot) {
           Slot_upper <- input$slot_upper
-          # Use very small SD for sharp slot boundaries (0.5mm instead of 1%)
-          Slot_upperSD <- 0.5
-          HarvlimSD_slot <- 0.5
+          # Use extremely small SD for near-step-function slot boundaries
+          Slot_upperSD <- 0.01
+          HarvlimSD_slot <- 0.01
 
           # Logistic for minimum size (vulnerable above min)
           Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
@@ -944,9 +944,9 @@ server <- function(input, output, session) {
           # Calculate harvest vulnerability with or without slot limit
           if(input$enable_slot) {
             Slot_upper <- input$slot_upper
-            # Use very small SD for sharp slot boundaries (0.5mm instead of 1%)
-            Slot_upperSD <- 0.5
-            HarvlimSD_slot <- 0.5
+            # Use extremely small SD for near-step-function slot boundaries
+            Slot_upperSD <- 0.01
+            HarvlimSD_slot <- 0.01
 
             # Logistic for minimum size (vulnerable above min)
             Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
