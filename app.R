@@ -235,7 +235,7 @@ server <- function(input, output, session) {
     if (input$species == "crappie") {
       updateNumericInput(session, "wl_a", value = 2.40991e-6)
       updateNumericInput(session, "wl_b", value = 3.38)
-      updateNumericInput(session, "mat_size", value = 200)
+      updateNumericInput(session, "mat_size", value = 180)  # ~7 inches (literature: 6-7" typical)
       updateNumericInput(session, "memorable_size", value = 305)  # 12 inches
       updateNumericInput(session, "nat_mort", value = 0.35)
       updateNumericInput(session, "linf", value = 353)
@@ -271,7 +271,7 @@ server <- function(input, output, session) {
       # Conservative estimates based on typical smallmouth bass populations
       updateNumericInput(session, "wl_a", value = 1.08e-5)
       updateNumericInput(session, "wl_b", value = 3.08)
-      updateNumericInput(session, "mat_size", value = 200)  # ~8 inches
+      updateNumericInput(session, "mat_size", value = 250)  # ~10 inches (literature: 8-12" typical)
       updateNumericInput(session, "memorable_size", value = 356)  # 14 inches
       updateNumericInput(session, "nat_mort", value = 0.35)
       updateNumericInput(session, "linf", value = 420)
