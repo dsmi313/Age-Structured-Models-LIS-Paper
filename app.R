@@ -6,7 +6,7 @@ library(plotly)
 
 # UI Definition
 ui <- fluidPage(
-  titlePanel("Crappie Age-Structured Population Model: YPR Analysis"),
+  titlePanel("Age-Structured Population Model: YPR Analysis"),
 
   sidebarLayout(
     sidebarPanel(
@@ -28,13 +28,38 @@ ui <- fluidPage(
       ),
       br(),
 
+      # Species Selection
+      h4("Species / Biological Parameters"),
+      selectInput("species", "Species:",
+                  choices = c("Crappie" = "crappie",
+                              "Walleye" = "walleye",
+                              "Largemouth Bass" = "lmb",
+                              "Smallmouth Bass" = "smb",
+                              "Custom" = "custom"),
+                  selected = "crappie"),
+
+      h5("Weight-Length Relationship: W = a × L^b"),
+      helpText(tags$small(tags$em("W in kg, L in mm"))),
+      numericInput("wl_a", "a (coefficient):", value = 2.40991e-6, min = 1e-8, max = 1e-3, step = 1e-7),
+      numericInput("wl_b", "b (exponent):", value = 3.38, min = 2.5, max = 4.0, step = 0.01),
+
+      numericInput("mat_size", "Maturity Size (mm):", value = 200, min = 50, max = 500, step = 10),
+      helpText(tags$small(tags$em("Fish at this size are sexually mature"))),
+
+      numericInput("memorable_size", "Memorable Size (mm):", value = 305, min = 100, max = 700, step = 5),
+      helpText(tags$small(tags$em("Trophy/quality fish threshold"))),
+
+      numericInput("nat_mort", "Natural Mortality (M):", value = 0.35, min = 0.05, max = 1.0, step = 0.01),
+      helpText(tags$small(tags$em("Annual natural mortality rate"))),
+      br(),
+
       # Growth Parameters
       h4("Growth Parameters (von Bertalanffy)"),
       helpText(tags$small(tags$em("L∞ = max length, K = growth rate, t0 = age at length 0"))),
       selectInput("growth_preset", "Load Preset:",
                   choices = c("Custom" = "custom", "Slow" = "slow", "Moderate" = "moderate", "Fast" = "fast"),
                   selected = "moderate"),
-      numericInput("linf", "L∞ (mm):", value = 353, min = 250, max = 450, step = 1),
+      numericInput("linf", "L∞ (mm):", value = 353, min = 250, max = 900, step = 1),
       numericInput("vbk", "K:", value = 0.374, min = 0.01, max = 1.5, step = 0.001),
       numericInput("t0", "t0:", value = 0.197, min = -1.0, max = 2.0, step = 0.001),
 
@@ -150,18 +175,30 @@ ui <- fluidPage(
 
         tabPanel("About",
                  br(),
-                 h3("Crappie Age-Structured Model"),
-                 p("This Shiny app implements the age-structured population model from:"),
+                 h3("Age-Structured Population Model"),
+                 p("This Shiny app implements a general age-structured population model originally developed for:"),
                  p(em("Live-imaging sonar use in Texas crappie fisheries: Assessing population-level
                       responses due to potential increases in exploitation.")),
                  br(),
+                 h4("Multi-Species Capability"),
+                 p("The model now includes presets for multiple species:"),
+                 tags$ul(
+                   tags$li(strong("Crappie:"), "Default parameters from original study"),
+                   tags$li(strong("Walleye:"), "Standard walleye life history parameters"),
+                   tags$li(strong("Largemouth Bass:"), "Typical warmwater bass parameters"),
+                   tags$li(strong("Smallmouth Bass:"), "Smallmouth bass parameters"),
+                   tags$li(strong("Custom:"), "Enter your own species-specific parameters")
+                 ),
+                 br(),
                  h4("Model Description"),
-                 p("This model simulates a crappie population using age-structured dynamics with:"),
+                 p("The model simulates fish populations using age-structured dynamics with:"),
                  tags$ul(
                    tags$li("Age classes 1-8 years"),
-                   tags$li("Von Bertalanffy growth"),
+                   tags$li("Species-specific von Bertalanffy growth"),
+                   tags$li("Customizable weight-length relationships"),
                    tags$li("Size-dependent vulnerability to capture and harvest"),
-                   tags$li("Discard and harvest mortality"),
+                   tags$li("Traditional and protective slot limit options"),
+                   tags$li("Natural mortality and discard mortality"),
                    tags$li("Stochastic recruitment (lognormal, CV=0.8)")
                  ),
                  br(),
@@ -169,11 +206,11 @@ ui <- fluidPage(
                  tags$ul(
                    tags$li(strong("YPR:"), "Yield Per Recruit (kg)"),
                    tags$li(strong("SPR:"), "Spawning Potential Ratio (relative to unfished)"),
-                   tags$li(strong("Prop Memorable:"), "Proportion of fish ≥12 inches")
+                   tags$li(strong("Prop Memorable:"), "Proportion of trophy/quality fish")
                  ),
                  br(),
                  h4("References"),
-                 p("Similar models used by Dotson et al. (2009)"),
+                 p("Crappie model based on work similar to Dotson et al. (2009)"),
                  p(a(href = "https://doi.org/10.1577/M08-137.1",
                      "https://doi.org/10.1577/M08-137.1"))
         )
@@ -192,6 +229,55 @@ server <- function(input, output, session) {
   saved_scenarios <- reactiveVal(data.frame())
   detailed_results <- reactiveVal(data.frame())
   yield_curve_data <- reactiveVal(NULL)
+
+  # Species parameter presets
+  observeEvent(input$species, {
+    if (input$species == "crappie") {
+      updateNumericInput(session, "wl_a", value = 2.40991e-6)
+      updateNumericInput(session, "wl_b", value = 3.38)
+      updateNumericInput(session, "mat_size", value = 200)
+      updateNumericInput(session, "memorable_size", value = 305)  # 12 inches
+      updateNumericInput(session, "nat_mort", value = 0.35)
+      updateNumericInput(session, "linf", value = 353)
+      updateNumericInput(session, "vbk", value = 0.374)
+      updateNumericInput(session, "t0", value = 0.197)
+      showNotification("Loaded Crappie parameters", type = "message")
+
+    } else if (input$species == "walleye") {
+      updateNumericInput(session, "wl_a", value = 5.94e-6)
+      updateNumericInput(session, "wl_b", value = 3.08)
+      updateNumericInput(session, "mat_size", value = 380)  # ~15 inches
+      updateNumericInput(session, "memorable_size", value = 508)  # 20 inches
+      updateNumericInput(session, "nat_mort", value = 0.25)
+      updateNumericInput(session, "linf", value = 650)
+      updateNumericInput(session, "vbk", value = 0.22)
+      updateNumericInput(session, "t0", value = -0.5)
+      showNotification("Loaded Walleye parameters", type = "message")
+
+    } else if (input$species == "lmb") {
+      updateNumericInput(session, "wl_a", value = 1.42e-5)
+      updateNumericInput(session, "wl_b", value = 3.01)
+      updateNumericInput(session, "mat_size", value = 250)  # ~10 inches
+      updateNumericInput(session, "memorable_size", value = 381)  # 15 inches
+      updateNumericInput(session, "nat_mort", value = 0.30)
+      updateNumericInput(session, "linf", value = 500)
+      updateNumericInput(session, "vbk", value = 0.28)
+      updateNumericInput(session, "t0", value = -0.2)
+      showNotification("Loaded Largemouth Bass parameters", type = "message")
+
+    } else if (input$species == "smb") {
+      updateNumericInput(session, "wl_a", value = 1.08e-5)
+      updateNumericInput(session, "wl_b", value = 3.08)
+      updateNumericInput(session, "mat_size", value = 200)  # ~8 inches
+      updateNumericInput(session, "memorable_size", value = 356)  # 14 inches
+      updateNumericInput(session, "nat_mort", value = 0.32)
+      updateNumericInput(session, "linf", value = 450)
+      updateNumericInput(session, "vbk", value = 0.24)
+      updateNumericInput(session, "t0", value = -0.3)
+      showNotification("Loaded Smallmouth Bass parameters", type = "message")
+    }
+    # If custom, don't update anything
+  })
 
   # Preset Management Scenarios
   observeEvent(input$preset_conservative, {
@@ -232,6 +318,7 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$preset_reset, {
+    updateSelectInput(session, "species", selected = "crappie")
     updateSelectInput(session, "growth_preset", selected = "moderate")
     updateSliderInput(session, "exploitation", value = 0.34)
     updateNumericInput(session, "harvlim", value = 254)
@@ -240,7 +327,7 @@ server <- function(input, output, session) {
     updateNumericInput(session, "nsim", value = 1000)
     updateNumericInput(session, "ymax", value = 100)
     updateCheckboxInput(session, "enable_slot", value = FALSE)
-    showNotification("Reset to default parameters", type = "message")
+    showNotification("Reset to default (Crappie) parameters", type = "message")
   })
 
   # Dynamic UI for deleting individual scenarios
@@ -309,12 +396,13 @@ server <- function(input, output, session) {
       Amax <- 8
       Ymax <- input$ymax
 
-      # Weight-length equation
-      alfa <- 2.40991e-6
-      bet <- 3.38
+      # Weight-length equation (species-specific)
+      alfa <- input$wl_a
+      bet <- input$wl_b
 
       # Mortality
       DisMort <- input$dismort
+      Nat_mort <- input$nat_mort
 
       # Stock-recruit
       Ro <- 10000
@@ -346,14 +434,14 @@ server <- function(input, output, session) {
         incProgress(1/nsim, detail = paste("Simulation", k, "of", nsim))
 
         N <- matrix(NA, Ymax, Amax)
-        Wmat <- (alfa * rnorm(1, 200, 20)^bet) / 1000
+        Wmat <- (alfa * rnorm(1, input$mat_size, input$mat_size * 0.1)^bet) / 1000
         Yield <- rep(NA, Ymax)
         SPRt <- rep(NA, Ymax)
         YPR <- rep(NA, Ymax)
         Prop <- rep(NA, Ymax)
 
-        S <- exp(-growth_params$vbk)^(Age - 1)
-        So <- exp(-growth_params$vbk)
+        S <- exp(-Nat_mort)^(Age - 1)
+        So <- exp(-Nat_mort)
 
         N[1, 1] <- 10000
         N[1, ] <- Ro * S
@@ -394,7 +482,7 @@ server <- function(input, output, session) {
         for(i in 2:Ymax) {
           N[i, 1] <- Rcapacity[i - 1]
           for(j in 2:Amax) {
-            trophyvul <- (1 / (1 + exp(-(TL - 305) / (305 * 0.1)))) * Vulcap[j]
+            trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
 
             N[i, j] <- N[i-1, j-1] * So *
               (1 - (Vulcap[j-1] * Uo - Vulharv[j-1] * U) * DisMort) *
@@ -785,12 +873,13 @@ server <- function(input, output, session) {
       Amax <- 8
       Ymax <- input$ymax
 
-      # Weight-length equation
-      alfa <- 2.40991e-6
-      bet <- 3.38
+      # Weight-length equation (species-specific)
+      alfa <- input$wl_a
+      bet <- input$wl_b
 
       # Mortality
       DisMort <- input$dismort
+      Nat_mort <- input$nat_mort
 
       # Stock-recruit
       Ro <- 10000
@@ -821,13 +910,13 @@ server <- function(input, output, session) {
 
         for(k in 1:nsim) {
           N <- matrix(NA, Ymax, Amax)
-          Wmat <- (alfa * rnorm(1, 200, 20)^bet) / 1000
+          Wmat <- (alfa * rnorm(1, input$mat_size, input$mat_size * 0.1)^bet) / 1000
           YPR <- rep(NA, Ymax)
           SPRt <- rep(NA, Ymax)
           Prop <- rep(NA, Ymax)
 
-          S <- exp(-growth_params$vbk)^(Age - 1)
-          So <- exp(-growth_params$vbk)
+          S <- exp(-Nat_mort)^(Age - 1)
+          So <- exp(-Nat_mort)
 
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
@@ -868,7 +957,7 @@ server <- function(input, output, session) {
           for(i in 2:Ymax) {
             N[i, 1] <- Rcapacity[i - 1]
             for(j in 2:Amax) {
-              trophyvul <- (1 / (1 + exp(-(TL - 305) / (305 * 0.1)))) * Vulcap[j]
+              trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
 
               N[i, j] <- N[i-1, j-1] * So *
                 (1 - (Vulcap[j-1] * Uo - Vulharv[j-1] * U) * DisMort) *
