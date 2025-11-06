@@ -244,37 +244,40 @@ server <- function(input, output, session) {
       showNotification("Loaded Crappie parameters", type = "message")
 
     } else if (input$species == "walleye") {
-      updateNumericInput(session, "wl_a", value = 5.94e-6)
-      updateNumericInput(session, "wl_b", value = 3.08)
+      # Craig et al. 1995; Weight-length from North American data
+      updateNumericInput(session, "wl_a", value = 3.52e-6)  # From log10(W) = -5.453 + 3.180*log10(L)
+      updateNumericInput(session, "wl_b", value = 3.18)
       updateNumericInput(session, "mat_size", value = 380)  # ~15 inches
       updateNumericInput(session, "memorable_size", value = 508)  # 20 inches
       updateNumericInput(session, "nat_mort", value = 0.25)
-      updateNumericInput(session, "linf", value = 650)
-      updateNumericInput(session, "vbk", value = 0.22)
-      updateNumericInput(session, "t0", value = -0.5)
-      showNotification("Loaded Walleye parameters", type = "message")
+      updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
+      updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
+      updateNumericInput(session, "t0", value = -0.632)  # Craig et al. 1995
+      showNotification("Loaded Walleye parameters (Craig et al. 1995)", type = "message")
 
     } else if (input$species == "lmb") {
-      updateNumericInput(session, "wl_a", value = 1.42e-5)
-      updateNumericInput(session, "wl_b", value = 3.01)
+      # Lake Trasimeno study; averaged male/female parameters
+      updateNumericInput(session, "wl_a", value = 9.88e-6)  # From W=0.00988*L^3.15
+      updateNumericInput(session, "wl_b", value = 3.15)
       updateNumericInput(session, "mat_size", value = 250)  # ~10 inches
       updateNumericInput(session, "memorable_size", value = 381)  # 15 inches
       updateNumericInput(session, "nat_mort", value = 0.30)
-      updateNumericInput(session, "linf", value = 500)
-      updateNumericInput(session, "vbk", value = 0.28)
-      updateNumericInput(session, "t0", value = -0.2)
-      showNotification("Loaded Largemouth Bass parameters", type = "message")
+      updateNumericInput(session, "linf", value = 450)  # Average of male/female
+      updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
+      updateNumericInput(session, "t0", value = 0.04)
+      showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
 
     } else if (input$species == "smb") {
+      # Conservative estimates based on typical smallmouth bass populations
       updateNumericInput(session, "wl_a", value = 1.08e-5)
       updateNumericInput(session, "wl_b", value = 3.08)
       updateNumericInput(session, "mat_size", value = 200)  # ~8 inches
       updateNumericInput(session, "memorable_size", value = 356)  # 14 inches
-      updateNumericInput(session, "nat_mort", value = 0.32)
-      updateNumericInput(session, "linf", value = 450)
-      updateNumericInput(session, "vbk", value = 0.24)
+      updateNumericInput(session, "nat_mort", value = 0.35)
+      updateNumericInput(session, "linf", value = 420)
+      updateNumericInput(session, "vbk", value = 0.25)
       updateNumericInput(session, "t0", value = -0.3)
-      showNotification("Loaded Smallmouth Bass parameters", type = "message")
+      showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
     }
     # If custom, don't update anything
   })
