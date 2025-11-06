@@ -440,8 +440,10 @@ server <- function(input, output, session) {
         Prop = rep(NA, nsim)
       )
 
-      # Store one representative time series
-      store_timeseries <- TRUE
+      # Store ALL time series data from all simulations
+      all_YPR <- matrix(NA, Ymax, nsim)
+      all_SPR <- matrix(NA, Ymax, nsim)
+      all_Prop <- matrix(NA, Ymax, nsim)
 
       for(k in 1:nsim) {
 
@@ -523,18 +525,13 @@ server <- function(input, output, session) {
         Propout <- Prop[50:Ymax]
         results$Prop[k] <- mean(Propout, na.rm = TRUE)
 
-        # Store one representative time series
-        if(store_timeseries && k == 1) {
-          ts_data <- data.frame(
-            Year = 1:Ymax,
-            YPR = YPR,
-            SPR = SPRt,
-            Prop = Prop,
-            TotalN = rowSums(N, na.rm = TRUE)
-          )
-          time_series_data(ts_data)
+        # Store time series from this simulation
+        all_YPR[, k] <- YPR
+        all_SPR[, k] <- SPRt
+        all_Prop[, k] <- Prop
 
-          # Store population structure
+        # Store population structure from first simulation
+        if(k == 1) {
           pop_data <- data.frame(
             Age = Age,
             Length = TL,
@@ -544,10 +541,29 @@ server <- function(input, output, session) {
             VulHarvest = Vulharv
           )
           pop_structure_data(pop_data)
-
-          store_timeseries <- FALSE
         }
       }
+
+      # Calculate mean and SD across all simulations at each year
+      ts_data <- data.frame(
+        Year = 1:Ymax,
+        YPR_mean = rowMeans(all_YPR, na.rm = TRUE),
+        YPR_sd = apply(all_YPR, 1, sd, na.rm = TRUE),
+        SPR_mean = rowMeans(all_SPR, na.rm = TRUE),
+        SPR_sd = apply(all_SPR, 1, sd, na.rm = TRUE),
+        Prop_mean = rowMeans(all_Prop, na.rm = TRUE),
+        Prop_sd = apply(all_Prop, 1, sd, na.rm = TRUE)
+      )
+
+      # Calculate 95% prediction intervals: mean ± 1.96 × SD
+      ts_data$YPR_lower <- ts_data$YPR_mean - 1.96 * ts_data$YPR_sd
+      ts_data$YPR_upper <- ts_data$YPR_mean + 1.96 * ts_data$YPR_sd
+      ts_data$SPR_lower <- ts_data$SPR_mean - 1.96 * ts_data$SPR_sd
+      ts_data$SPR_upper <- ts_data$SPR_mean + 1.96 * ts_data$SPR_sd
+      ts_data$Prop_lower <- ts_data$Prop_mean - 1.96 * ts_data$Prop_sd
+      ts_data$Prop_upper <- ts_data$Prop_mean + 1.96 * ts_data$Prop_sd
+
+      time_series_data(ts_data)
 
       sim_results(results)
     })
@@ -655,19 +671,51 @@ server <- function(input, output, session) {
     req(time_series_data())
     ts_data <- time_series_data()
 
-    ts_long <- ts_data %>%
-      select(Year, YPR, SPR, Prop) %>%
-      pivot_longer(-Year, names_to = "Metric", values_to = "Value")
+    # Create separate plots for each metric with ribbons
+    p1 <- ggplot(ts_data, aes(x = Year, y = YPR_mean)) +
+      geom_ribbon(aes(ymin = YPR_lower, ymax = YPR_upper),
+                  alpha = 0.2, fill = "steelblue") +
+      geom_line(color = "steelblue", size = 1) +
+      labs(title = "YPR Over Time (Mean ± 95% Prediction Interval)",
+           x = "", y = "YPR (kg)") +
+      theme_minimal()
 
-    p <- ggplot(ts_long, aes(x = Year, y = Value, color = Metric)) +
-      geom_line(size = 0.8) +
-      facet_wrap(~ Metric, scales = "free_y", ncol = 1) +
-      labs(title = "Population Metrics Over Time (Representative Simulation)",
-           x = "Year", y = "Value") +
-      theme_minimal() +
-      theme(legend.position = "none")
+    p2 <- ggplot(ts_data, aes(x = Year, y = SPR_mean)) +
+      geom_ribbon(aes(ymin = SPR_lower, ymax = SPR_upper),
+                  alpha = 0.2, fill = "darkgreen") +
+      geom_line(color = "darkgreen", size = 1) +
+      geom_hline(yintercept = 0.40, linetype = "dashed", color = "orange", alpha = 0.7) +
+      geom_hline(yintercept = 0.30, linetype = "dashed", color = "red", alpha = 0.7) +
+      labs(title = "SPR Over Time (Mean ± 95% Prediction Interval)",
+           subtitle = "Dashed lines: 40% (sustainable), 30% (overfished)",
+           x = "", y = "SPR") +
+      theme_minimal()
 
-    ggplotly(p)
+    memorable_inches <- round(input$memorable_size / 25.4, 1)
+    p3 <- ggplot(ts_data, aes(x = Year, y = Prop_mean)) +
+      geom_ribbon(aes(ymin = Prop_lower, ymax = Prop_upper),
+                  alpha = 0.2, fill = "darkorange") +
+      geom_line(color = "darkorange", size = 1) +
+      labs(title = paste0("Proportion Memorable (≥", memorable_inches, "\") Over Time"),
+           subtitle = "Mean ± 95% prediction interval",
+           x = "Year", y = "Proportion") +
+      theme_minimal()
+
+    # Combine plots vertically
+    subplot(
+      ggplotly(p1),
+      ggplotly(p2),
+      ggplotly(p3),
+      nrows = 3,
+      shareX = TRUE,
+      titleY = TRUE
+    ) %>%
+      layout(title = list(
+        text = paste0("Population Metrics Over Time<br>",
+                     "<sup>Mean across ", input$nsim, " simulations with 95% prediction intervals</sup>"),
+        x = 0.5,
+        xanchor = "center"
+      ))
   })
 
   # Population structure plot
