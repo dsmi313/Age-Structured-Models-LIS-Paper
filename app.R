@@ -148,8 +148,12 @@ ui <- fluidPage(
         tabPanel("Yield Curves",
                  br(),
                  h4("Yield Per Recruit vs Exploitation Rate"),
-                 helpText("Shows how YPR and SPR respond to different exploitation rates with current growth and selectivity parameters.
-                          Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished)."),
+                 helpText("Shows how YPR and SPR respond to different exploitation rates with current growth and selectivity parameters.",
+                          tags$br(),
+                          tags$strong("Shaded bands show where 95% of population outcomes fall"),
+                          "due to stochastic recruitment variability (not uncertainty in the mean estimate).",
+                          tags$br(),
+                          "Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished)."),
                  br(),
                  sliderInput("yield_curve_nsim", "Number of Simulations per Point:",
                              min = 500, max = 5000, value = 2000, step = 500),
@@ -1015,17 +1019,18 @@ server <- function(input, output, session) {
     curve_data <- yield_curve_data()
     req(!is.null(curve_data))
 
-    # Calculate 95% CI: mean ± 1.96 × SE, where SE = SD/sqrt(n)
-    curve_data$YPR_SE <- curve_data$YPR_sd / sqrt(curve_data$YPR_n)
-    curve_data$YPR_lower <- curve_data$YPR_mean - 1.96 * curve_data$YPR_SE
-    curve_data$YPR_upper <- curve_data$YPR_mean + 1.96 * curve_data$YPR_SE
+    # Calculate 95% prediction interval: mean ± 1.96 × SD
+    # Shows where 95% of population outcomes fall due to recruitment variability
+    curve_data$YPR_lower <- curve_data$YPR_mean - 1.96 * curve_data$YPR_sd
+    curve_data$YPR_upper <- curve_data$YPR_mean + 1.96 * curve_data$YPR_sd
 
     p <- ggplot(curve_data, aes(x = U * 100, y = YPR_mean)) +
       geom_line(color = "steelblue", size = 1.5) +
       geom_ribbon(aes(ymin = YPR_lower, ymax = YPR_upper),
                   alpha = 0.2, fill = "steelblue") +
       geom_point(color = "steelblue", size = 2) +
-      labs(title = "Yield Per Recruit vs Exploitation Rate (95% CI)",
+      labs(title = "Yield Per Recruit vs Exploitation Rate",
+           subtitle = "Shaded band: 95% of population outcomes due to recruitment variability",
            x = "Exploitation Rate (%)",
            y = "YPR (kg)") +
       theme_minimal()
@@ -1038,10 +1043,10 @@ server <- function(input, output, session) {
     curve_data <- yield_curve_data()
     req(!is.null(curve_data))
 
-    # Calculate 95% CI: mean ± 1.96 × SE, where SE = SD/sqrt(n)
-    curve_data$SPR_SE <- curve_data$SPR_sd / sqrt(curve_data$SPR_n)
-    curve_data$SPR_lower <- curve_data$SPR_mean - 1.96 * curve_data$SPR_SE
-    curve_data$SPR_upper <- curve_data$SPR_mean + 1.96 * curve_data$SPR_SE
+    # Calculate 95% prediction interval: mean ± 1.96 × SD
+    # Shows where 95% of population outcomes fall due to recruitment variability
+    curve_data$SPR_lower <- curve_data$SPR_mean - 1.96 * curve_data$SPR_sd
+    curve_data$SPR_upper <- curve_data$SPR_mean + 1.96 * curve_data$SPR_sd
 
     p <- ggplot(curve_data, aes(x = U * 100, y = SPR_mean)) +
       geom_line(color = "darkgreen", size = 1.5) +
@@ -1052,7 +1057,8 @@ server <- function(input, output, session) {
       geom_hline(yintercept = 0.30, linetype = "dashed", color = "red", size = 1) +
       annotate("text", x = 90, y = 0.42, label = "SPR = 40% (Sustainable)", color = "orange", size = 3) +
       annotate("text", x = 90, y = 0.32, label = "SPR = 30% (Overfished)", color = "red", size = 3) +
-      labs(title = "Spawning Potential Ratio vs Exploitation Rate (95% CI)",
+      labs(title = "Spawning Potential Ratio vs Exploitation Rate",
+           subtitle = "Shaded band: 95% of population outcomes due to recruitment variability",
            x = "Exploitation Rate (%)",
            y = "SPR") +
       theme_minimal()
