@@ -998,8 +998,10 @@ server <- function(input, output, session) {
           U = U_test,
           YPR_mean = mean(ypr_vals, na.rm = TRUE),
           YPR_sd = sd(ypr_vals, na.rm = TRUE),
+          YPR_n = nsim,
           SPR_mean = mean(spr_vals, na.rm = TRUE),
           SPR_sd = sd(spr_vals, na.rm = TRUE),
+          SPR_n = nsim,
           Prop_mean = mean(prop_vals, na.rm = TRUE)
         ))
       }
@@ -1013,9 +1015,14 @@ server <- function(input, output, session) {
     curve_data <- yield_curve_data()
     req(!is.null(curve_data))
 
+    # Calculate 95% CI: mean ± 1.96 × SE, where SE = SD/sqrt(n)
+    curve_data$YPR_SE <- curve_data$YPR_sd / sqrt(curve_data$YPR_n)
+    curve_data$YPR_lower <- curve_data$YPR_mean - 1.96 * curve_data$YPR_SE
+    curve_data$YPR_upper <- curve_data$YPR_mean + 1.96 * curve_data$YPR_SE
+
     p <- ggplot(curve_data, aes(x = U * 100, y = YPR_mean)) +
       geom_line(color = "steelblue", size = 1.5) +
-      geom_ribbon(aes(ymin = YPR_mean - 1.96 * YPR_sd, ymax = YPR_mean + 1.96 * YPR_sd),
+      geom_ribbon(aes(ymin = YPR_lower, ymax = YPR_upper),
                   alpha = 0.2, fill = "steelblue") +
       geom_point(color = "steelblue", size = 2) +
       labs(title = "Yield Per Recruit vs Exploitation Rate (95% CI)",
@@ -1031,9 +1038,14 @@ server <- function(input, output, session) {
     curve_data <- yield_curve_data()
     req(!is.null(curve_data))
 
+    # Calculate 95% CI: mean ± 1.96 × SE, where SE = SD/sqrt(n)
+    curve_data$SPR_SE <- curve_data$SPR_sd / sqrt(curve_data$SPR_n)
+    curve_data$SPR_lower <- curve_data$SPR_mean - 1.96 * curve_data$SPR_SE
+    curve_data$SPR_upper <- curve_data$SPR_mean + 1.96 * curve_data$SPR_SE
+
     p <- ggplot(curve_data, aes(x = U * 100, y = SPR_mean)) +
       geom_line(color = "darkgreen", size = 1.5) +
-      geom_ribbon(aes(ymin = SPR_mean - 1.96 * SPR_sd, ymax = SPR_mean + 1.96 * SPR_sd),
+      geom_ribbon(aes(ymin = SPR_lower, ymax = SPR_upper),
                   alpha = 0.2, fill = "darkgreen") +
       geom_point(color = "darkgreen", size = 2) +
       geom_hline(yintercept = 0.40, linetype = "dashed", color = "orange", size = 1) +
