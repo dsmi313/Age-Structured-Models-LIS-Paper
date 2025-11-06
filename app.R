@@ -12,22 +12,6 @@ ui <- fluidPage(
     sidebarPanel(
       h3("Model Parameters"),
 
-      # Preset Management Scenarios
-      h4("Quick Load Scenarios"),
-      fluidRow(
-        column(6, actionButton("preset_conservative", "Conservative", class = "btn-sm btn-info", style = "width:100%")),
-        column(6, actionButton("preset_moderate", "Moderate", class = "btn-sm btn-info", style = "width:100%"))
-      ),
-      fluidRow(
-        column(6, actionButton("preset_liberal", "Liberal", class = "btn-sm btn-info", style = "width:100%")),
-        column(6, actionButton("preset_trophy_slot", "Trophy Slot", class = "btn-sm btn-success", style = "width:100%"))
-      ),
-      fluidRow(
-        column(6, actionButton("preset_harvest_slot", "Harvest Slot", class = "btn-sm btn-success", style = "width:100%")),
-        column(6, actionButton("preset_reset", "Reset Defaults", class = "btn-sm btn-secondary", style = "width:100%"))
-      ),
-      br(),
-
       # Species Selection
       h4("Species / Biological Parameters"),
       selectInput("species", "Species:",
@@ -280,57 +264,6 @@ server <- function(input, output, session) {
       showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
     }
     # If custom, don't update anything
-  })
-
-  # Preset Management Scenarios
-  observeEvent(input$preset_conservative, {
-    updateSliderInput(session, "exploitation", value = 0.25)
-    updateNumericInput(session, "harvlim", value = 305)  # 12 inches
-    showNotification("Loaded: Conservative (U=25%, MLL=12\")", type = "message")
-  })
-
-  observeEvent(input$preset_moderate, {
-    updateSliderInput(session, "exploitation", value = 0.40)
-    updateNumericInput(session, "harvlim", value = 254)  # 10 inches
-    showNotification("Loaded: Moderate (U=40%, MLL=10\")", type = "message")
-  })
-
-  observeEvent(input$preset_liberal, {
-    updateSliderInput(session, "exploitation", value = 0.60)
-    updateNumericInput(session, "harvlim", value = 203)  # 8 inches
-    updateCheckboxInput(session, "enable_slot", value = FALSE)
-    showNotification("Loaded: Liberal (U=60%, MLL=8\")", type = "message")
-  })
-
-  observeEvent(input$preset_trophy_slot, {
-    updateSliderInput(session, "exploitation", value = 0.40)
-    updateNumericInput(session, "harvlim", value = 254)  # 10 inches
-    updateCheckboxInput(session, "enable_slot", value = TRUE)
-    updateRadioButtons(session, "slot_type", selected = "protective")
-    updateNumericInput(session, "slot_upper", value = 380)  # 15 inches
-    showNotification("Loaded: Trophy Slot (U=40%, protect 10-15\")", type = "message")
-  })
-
-  observeEvent(input$preset_harvest_slot, {
-    updateSliderInput(session, "exploitation", value = 0.40)
-    updateNumericInput(session, "harvlim", value = 305)  # 12 inches
-    updateCheckboxInput(session, "enable_slot", value = TRUE)
-    updateRadioButtons(session, "slot_type", selected = "traditional")
-    updateNumericInput(session, "slot_upper", value = 406)  # 16 inches
-    showNotification("Loaded: Harvest Slot (U=40%, keep 12-16\" only)", type = "message")
-  })
-
-  observeEvent(input$preset_reset, {
-    updateSelectInput(session, "species", selected = "crappie")
-    updateSelectInput(session, "growth_preset", selected = "moderate")
-    updateSliderInput(session, "exploitation", value = 0.34)
-    updateNumericInput(session, "harvlim", value = 254)
-    updateNumericInput(session, "capsize", value = 204)
-    updateNumericInput(session, "dismort", value = 0.09)
-    updateNumericInput(session, "nsim", value = 1000)
-    updateNumericInput(session, "ymax", value = 100)
-    updateCheckboxInput(session, "enable_slot", value = FALSE)
-    showNotification("Reset to default (Crappie) parameters", type = "message")
   })
 
   # Dynamic UI for deleting individual scenarios
