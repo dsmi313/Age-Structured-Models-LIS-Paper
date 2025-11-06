@@ -619,11 +619,14 @@ server <- function(input, output, session) {
     req(sim_results())
     results <- sim_results()
 
+    # Convert memorable size from mm to inches for display
+    memorable_inches <- round(input$memorable_size / 25.4, 1)
+
     p <- ggplot(results, aes(x = "", y = Prop)) +
       geom_violin(fill = "orange", alpha = 0.7, color = "black") +
       geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
       stat_summary(fun = mean, geom = "point", color = "red", size = 3) +
-      labs(title = "Proportion of Memorable-Sized Fish (≥12 inches)",
+      labs(title = paste0("Proportion of Memorable-Sized Fish (≥", memorable_inches, " inches)"),
            x = "", y = "Proportion") +
       theme_minimal() +
       theme(axis.text.x = element_blank())
