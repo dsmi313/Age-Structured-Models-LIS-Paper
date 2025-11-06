@@ -221,10 +221,10 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.38)
       updateNumericInput(session, "mat_size", value = 180)  # ~7 inches (literature: 6-7" typical)
       updateNumericInput(session, "memorable_size", value = 305)  # 12 inches
-      updateNumericInput(session, "nat_mort", value = 0.35)
       updateNumericInput(session, "linf", value = 353)
       updateNumericInput(session, "vbk", value = 0.374)
       updateNumericInput(session, "t0", value = 0.197)
+      updateNumericInput(session, "nat_mort", value = 0.374)  # M = K (default)
       showNotification("Loaded Crappie parameters", type = "message")
 
     } else if (input$species == "walleye") {
@@ -233,10 +233,10 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.18)
       updateNumericInput(session, "mat_size", value = 380)  # ~15 inches
       updateNumericInput(session, "memorable_size", value = 508)  # 20 inches
-      updateNumericInput(session, "nat_mort", value = 0.25)
       updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
       updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
       updateNumericInput(session, "t0", value = -0.632)  # Craig et al. 1995
+      updateNumericInput(session, "nat_mort", value = 0.215)  # M = K (default)
       showNotification("Loaded Walleye parameters (Craig et al. 1995)", type = "message")
 
     } else if (input$species == "lmb") {
@@ -245,10 +245,10 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.15)
       updateNumericInput(session, "mat_size", value = 250)  # ~10 inches
       updateNumericInput(session, "memorable_size", value = 381)  # 15 inches
-      updateNumericInput(session, "nat_mort", value = 0.30)
       updateNumericInput(session, "linf", value = 450)  # Average of male/female
       updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
       updateNumericInput(session, "t0", value = 0.04)
+      updateNumericInput(session, "nat_mort", value = 0.35)  # M = K (default)
       showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
 
     } else if (input$species == "smb") {
@@ -257,10 +257,10 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.08)
       updateNumericInput(session, "mat_size", value = 250)  # ~10 inches (literature: 8-12" typical)
       updateNumericInput(session, "memorable_size", value = 356)  # 14 inches
-      updateNumericInput(session, "nat_mort", value = 0.35)
       updateNumericInput(session, "linf", value = 420)
       updateNumericInput(session, "vbk", value = 0.25)
       updateNumericInput(session, "t0", value = -0.3)
+      updateNumericInput(session, "nat_mort", value = 0.25)  # M = K (default)
       showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
     }
     # If custom, don't update anything
@@ -299,19 +299,85 @@ server <- function(input, output, session) {
   })
 
   # Observer to update growth parameters when preset is selected
+  # Species-specific growth presets
   observeEvent(input$growth_preset, {
-    if (input$growth_preset == "slow") {
-      updateNumericInput(session, "linf", value = 333)
-      updateNumericInput(session, "vbk", value = 0.325)
-      updateNumericInput(session, "t0", value = 0.174)
-    } else if (input$growth_preset == "moderate") {
-      updateNumericInput(session, "linf", value = 353)
-      updateNumericInput(session, "vbk", value = 0.374)
-      updateNumericInput(session, "t0", value = 0.197)
-    } else if (input$growth_preset == "fast") {
-      updateNumericInput(session, "linf", value = 356)
-      updateNumericInput(session, "vbk", value = 0.691)
-      updateNumericInput(session, "t0", value = -0.056)
+    req(input$species, input$growth_preset)
+
+    # Crappie growth parameters (from original study)
+    if (input$species == "crappie") {
+      if (input$growth_preset == "slow") {
+        updateNumericInput(session, "linf", value = 333)
+        updateNumericInput(session, "vbk", value = 0.325)
+        updateNumericInput(session, "t0", value = 0.174)
+        updateNumericInput(session, "nat_mort", value = 0.325)  # M = K
+      } else if (input$growth_preset == "moderate") {
+        updateNumericInput(session, "linf", value = 353)
+        updateNumericInput(session, "vbk", value = 0.374)
+        updateNumericInput(session, "t0", value = 0.197)
+        updateNumericInput(session, "nat_mort", value = 0.374)  # M = K
+      } else if (input$growth_preset == "fast") {
+        updateNumericInput(session, "linf", value = 356)
+        updateNumericInput(session, "vbk", value = 0.691)
+        updateNumericInput(session, "t0", value = -0.056)
+        updateNumericInput(session, "nat_mort", value = 0.691)  # M = K
+      }
+    }
+    # Walleye growth parameters (FishBase K range: 0.05-0.45)
+    else if (input$species == "walleye") {
+      if (input$growth_preset == "slow") {
+        updateNumericInput(session, "linf", value = 500)  # Northern populations
+        updateNumericInput(session, "vbk", value = 0.12)
+        updateNumericInput(session, "t0", value = -0.5)
+        updateNumericInput(session, "nat_mort", value = 0.12)  # M = K
+      } else if (input$growth_preset == "moderate") {
+        updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
+        updateNumericInput(session, "vbk", value = 0.215)
+        updateNumericInput(session, "t0", value = -0.632)
+        updateNumericInput(session, "nat_mort", value = 0.215)  # M = K
+      } else if (input$growth_preset == "fast") {
+        updateNumericInput(session, "linf", value = 430)  # Southern populations
+        updateNumericInput(session, "vbk", value = 0.35)
+        updateNumericInput(session, "t0", value = -0.75)
+        updateNumericInput(session, "nat_mort", value = 0.35)  # M = K
+      }
+    }
+    # Largemouth Bass growth parameters
+    else if (input$species == "lmb") {
+      if (input$growth_preset == "slow") {
+        updateNumericInput(session, "linf", value = 400)  # Northern strain
+        updateNumericInput(session, "vbk", value = 0.25)
+        updateNumericInput(session, "t0", value = 0.1)
+        updateNumericInput(session, "nat_mort", value = 0.25)  # M = K
+      } else if (input$growth_preset == "moderate") {
+        updateNumericInput(session, "linf", value = 450)  # Average
+        updateNumericInput(session, "vbk", value = 0.35)
+        updateNumericInput(session, "t0", value = 0.04)
+        updateNumericInput(session, "nat_mort", value = 0.35)  # M = K
+      } else if (input$growth_preset == "fast") {
+        updateNumericInput(session, "linf", value = 550)  # Florida strain
+        updateNumericInput(session, "vbk", value = 0.42)
+        updateNumericInput(session, "t0", value = -0.1)
+        updateNumericInput(session, "nat_mort", value = 0.42)  # M = K
+      }
+    }
+    # Smallmouth Bass growth parameters (FishBase K range: 0.10-0.28)
+    else if (input$species == "smb") {
+      if (input$growth_preset == "slow") {
+        updateNumericInput(session, "linf", value = 450)  # Oligotrophic systems
+        updateNumericInput(session, "vbk", value = 0.18)
+        updateNumericInput(session, "t0", value = -0.2)
+        updateNumericInput(session, "nat_mort", value = 0.18)  # M = K
+      } else if (input$growth_preset == "moderate") {
+        updateNumericInput(session, "linf", value = 420)  # Typical
+        updateNumericInput(session, "vbk", value = 0.25)
+        updateNumericInput(session, "t0", value = -0.3)
+        updateNumericInput(session, "nat_mort", value = 0.25)  # M = K
+      } else if (input$growth_preset == "fast") {
+        updateNumericInput(session, "linf", value = 380)  # Productive systems
+        updateNumericInput(session, "vbk", value = 0.35)
+        updateNumericInput(session, "t0", value = -0.4)
+        updateNumericInput(session, "nat_mort", value = 0.35)  # M = K
+      }
     }
     # If "custom" is selected, don't update anything - user will enter their own values
   })
