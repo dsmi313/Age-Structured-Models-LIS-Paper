@@ -1015,10 +1015,10 @@ server <- function(input, output, session) {
 
     p <- ggplot(curve_data, aes(x = U * 100, y = YPR_mean)) +
       geom_line(color = "steelblue", size = 1.5) +
-      geom_ribbon(aes(ymin = YPR_mean - YPR_sd, ymax = YPR_mean + YPR_sd),
+      geom_ribbon(aes(ymin = YPR_mean - 1.96 * YPR_sd, ymax = YPR_mean + 1.96 * YPR_sd),
                   alpha = 0.2, fill = "steelblue") +
       geom_point(color = "steelblue", size = 2) +
-      labs(title = "Yield Per Recruit vs Exploitation Rate",
+      labs(title = "Yield Per Recruit vs Exploitation Rate (95% CI)",
            x = "Exploitation Rate (%)",
            y = "YPR (kg)") +
       theme_minimal()
@@ -1033,14 +1033,14 @@ server <- function(input, output, session) {
 
     p <- ggplot(curve_data, aes(x = U * 100, y = SPR_mean)) +
       geom_line(color = "darkgreen", size = 1.5) +
-      geom_ribbon(aes(ymin = SPR_mean - SPR_sd, ymax = SPR_mean + SPR_sd),
+      geom_ribbon(aes(ymin = SPR_mean - 1.96 * SPR_sd, ymax = SPR_mean + 1.96 * SPR_sd),
                   alpha = 0.2, fill = "darkgreen") +
       geom_point(color = "darkgreen", size = 2) +
       geom_hline(yintercept = 0.40, linetype = "dashed", color = "orange", size = 1) +
       geom_hline(yintercept = 0.30, linetype = "dashed", color = "red", size = 1) +
       annotate("text", x = 90, y = 0.42, label = "SPR = 40% (Sustainable)", color = "orange", size = 3) +
       annotate("text", x = 90, y = 0.32, label = "SPR = 30% (Overfished)", color = "red", size = 3) +
-      labs(title = "Spawning Potential Ratio vs Exploitation Rate",
+      labs(title = "Spawning Potential Ratio vs Exploitation Rate (95% CI)",
            x = "Exploitation Rate (%)",
            y = "SPR") +
       theme_minimal()
