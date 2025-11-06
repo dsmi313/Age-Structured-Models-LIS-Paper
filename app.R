@@ -35,6 +35,9 @@ ui <- fluidPage(
 
       numericInput("nat_mort", "Natural Mortality (M):", value = 0.35, min = 0.05, max = 1.0, step = 0.01),
       helpText(tags$small(tags$em("Annual natural mortality rate"))),
+
+      numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.1, max = 1.5, step = 0.05),
+      helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (higher = more variable)"))),
       br(),
 
       # Growth Parameters
@@ -183,7 +186,7 @@ ui <- fluidPage(
                    tags$li("Size-dependent vulnerability to capture and harvest"),
                    tags$li("Traditional and protective slot limit options"),
                    tags$li("Natural mortality and discard mortality"),
-                   tags$li("Stochastic recruitment (lognormal, CV=0.8)")
+                   tags$li("Stochastic recruitment (lognormal, species-specific CV)")
                  ),
                  br(),
                  h4("Outputs"),
@@ -225,6 +228,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "vbk", value = 0.374)
       updateNumericInput(session, "t0", value = 0.197)
       updateNumericInput(session, "nat_mort", value = 0.374)  # M = K (default)
+      updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
       showNotification("Loaded Crappie parameters", type = "message")
 
     } else if (input$species == "walleye") {
@@ -237,6 +241,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
       updateNumericInput(session, "t0", value = -0.632)  # Craig et al. 1995
       updateNumericInput(session, "nat_mort", value = 0.215)  # M = K (default)
+      updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
       showNotification("Loaded Walleye parameters (Craig et al. 1995)", type = "message")
 
     } else if (input$species == "lmb") {
@@ -249,6 +254,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
       updateNumericInput(session, "t0", value = 0.04)
       updateNumericInput(session, "nat_mort", value = 0.35)  # M = K (default)
+      updateNumericInput(session, "rec_cv", value = 0.45)  # Moderate recruitment variability
       showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
 
     } else if (input$species == "smb") {
@@ -261,6 +267,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "vbk", value = 0.25)
       updateNumericInput(session, "t0", value = -0.3)
       updateNumericInput(session, "nat_mort", value = 0.25)  # M = K (default)
+      updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
       showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
     }
     # If custom, don't update anything
@@ -448,7 +455,7 @@ server <- function(input, output, session) {
         N[1, 1] <- 10000
         N[1, ] <- Ro * S
 
-        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = 0.8)
+        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = input$rec_cv)
 
         U <- input$exploitation
         Uo <- input$exploitation + 0.1
@@ -930,7 +937,7 @@ server <- function(input, output, session) {
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
 
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = 0.8)
+          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = input$rec_cv)
 
           U <- U_test
           Uo <- U_test + 0.1
