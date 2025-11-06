@@ -156,12 +156,13 @@ ui <- fluidPage(
                           "Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished)."),
                  br(),
                  sliderInput("yield_curve_nsim", "Number of Simulations per Point:",
-                             min = 500, max = 5000, value = 2000, step = 500),
+                             min = 1, max = 5000, value = 2000, step = 1),
                  actionButton("run_yield_curve", "Generate Yield Curve", class = "btn-primary"),
                  br(),
                  br(),
                  plotlyOutput("yield_curve_plot", height = "400px"),
-                 plotlyOutput("spr_curve_plot", height = "400px")
+                 plotlyOutput("spr_curve_plot", height = "400px"),
+                 plotlyOutput("prop_curve_plot", height = "400px")
         ),
 
         tabPanel("About",
@@ -1006,7 +1007,9 @@ server <- function(input, output, session) {
           SPR_mean = mean(spr_vals, na.rm = TRUE),
           SPR_sd = sd(spr_vals, na.rm = TRUE),
           SPR_n = nsim,
-          Prop_mean = mean(prop_vals, na.rm = TRUE)
+          Prop_mean = mean(prop_vals, na.rm = TRUE),
+          Prop_sd = sd(prop_vals, na.rm = TRUE),
+          Prop_n = nsim
         ))
       }
 
@@ -1061,6 +1064,33 @@ server <- function(input, output, session) {
            subtitle = "Shaded band: 95% of population outcomes due to recruitment variability",
            x = "Exploitation Rate (%)",
            y = "SPR") +
+      theme_minimal()
+
+    ggplotly(p)
+  })
+
+  # Proportion memorable curve plot
+  output$prop_curve_plot <- renderPlotly({
+    curve_data <- yield_curve_data()
+    req(!is.null(curve_data))
+
+    # Calculate 95% prediction interval: mean ± 1.96 × SD
+    # Shows where 95% of population outcomes fall due to recruitment variability
+    curve_data$Prop_lower <- curve_data$Prop_mean - 1.96 * curve_data$Prop_sd
+    curve_data$Prop_upper <- curve_data$Prop_mean + 1.96 * curve_data$Prop_sd
+
+    # Convert memorable size from mm to inches for display
+    memorable_inches <- round(input$memorable_size / 25.4, 1)
+
+    p <- ggplot(curve_data, aes(x = U * 100, y = Prop_mean)) +
+      geom_line(color = "darkorange", size = 1.5) +
+      geom_ribbon(aes(ymin = Prop_lower, ymax = Prop_upper),
+                  alpha = 0.2, fill = "darkorange") +
+      geom_point(color = "darkorange", size = 2) +
+      labs(title = paste0("Proportion of Memorable-Sized Fish (≥", memorable_inches, "\") vs Exploitation Rate"),
+           subtitle = "Shaded band: 95% of population outcomes due to recruitment variability",
+           x = "Exploitation Rate (%)",
+           y = "Proportion Memorable") +
       theme_minimal()
 
     ggplotly(p)
