@@ -470,11 +470,13 @@ server <- function(input, output, session) {
           Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
 
           if(input$slot_type == "traditional") {
-            # Traditional slot: harvest ONLY between min and max
+            # Traditional slot: harvest ONLY within slot (min to max)
+            # Zero vulnerability outside slot
             Vulharv <- Vulharv_above_min * Vulharv_below_max
           } else {
-            # Protective slot: PROTECT between min and max (harvest below min OR above max)
-            Vulharv <- pmax(Vulharv_above_min - (Vulharv_above_min * Vulharv_below_max), 0)
+            # Protective slot: PROTECT within slot (min to max)
+            # Zero vulnerability within slot, full vulnerability outside
+            Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
           }
         } else {
           # Standard minimum length limit only
@@ -948,11 +950,13 @@ server <- function(input, output, session) {
             Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
 
             if(input$slot_type == "traditional") {
-              # Traditional slot: harvest ONLY between min and max
+              # Traditional slot: harvest ONLY within slot (min to max)
+              # Zero vulnerability outside slot
               Vulharv <- Vulharv_above_min * Vulharv_below_max
             } else {
-              # Protective slot: PROTECT between min and max (harvest below min OR above max)
-              Vulharv <- pmax(Vulharv_above_min - (Vulharv_above_min * Vulharv_below_max), 0)
+              # Protective slot: PROTECT within slot (min to max)
+              # Zero vulnerability within slot, full vulnerability outside
+              Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
             }
           } else {
             # Standard minimum length limit only
