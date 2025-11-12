@@ -19,6 +19,8 @@ ui <- fluidPage(
                               "Walleye" = "walleye",
                               "Largemouth Bass" = "lmb",
                               "Smallmouth Bass" = "smb",
+                              "Channel Catfish" = "channel_catfish",
+                              "Blue Catfish" = "blue_catfish",
                               "Custom" = "custom"),
                   selected = "crappie"),
 
@@ -179,6 +181,8 @@ ui <- fluidPage(
                    tags$li(strong("Walleye:"), "Standard walleye life history parameters"),
                    tags$li(strong("Largemouth Bass:"), "Typical warmwater bass parameters"),
                    tags$li(strong("Smallmouth Bass:"), "Smallmouth bass parameters"),
+                  tags$li(strong("Channel Catfish:"), "Parameters from FishBase/literature"),
+                  tags$li(strong("Blue Catfish:"), "Parameters from FishBase/literature"),
                    tags$li(strong("Custom:"), "Enter your own species-specific parameters")
                  ),
                  br(),
@@ -274,6 +278,34 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.25)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
       showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
+
+    } else if (input$species == "channel_catfish") {
+      # Channel catfish parameters (FishBase/literature)
+      # W-L from NLLS: W(g) = 0.00522 * L(cm)^3.2293, converted to kg and mm
+      updateNumericInput(session, "wl_a", value = 3.08e-9)
+      updateNumericInput(session, "wl_b", value = 3.23)
+      updateNumericInput(session, "mat_size", value = 431)  # ~17 inches (FishBase: 43.1cm)
+      updateNumericInput(session, "memorable_size", value = 610)  # 24 inches (trophy size)
+      updateNumericInput(session, "linf", value = 650)  # Moderate growth
+      updateNumericInput(session, "vbk", value = 0.18)
+      updateNumericInput(session, "t0", value = -1.2)
+      updateNumericInput(session, "nat_mort", value = 0.18)  # M = K (default)
+      updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
+      showNotification("Loaded Channel Catfish parameters (FishBase/literature)", type = "message")
+
+    } else if (input$species == "blue_catfish") {
+      # Blue catfish parameters (FishBase/literature)
+      # W-L from FishBase Bayesian: W(g) = 0.00525 * L(cm)^3.11, converted to kg and mm
+      updateNumericInput(session, "wl_a", value = 4.08e-9)
+      updateNumericInput(session, "wl_b", value = 3.11)
+      updateNumericInput(session, "mat_size", value = 500)  # ~20 inches (larger than channel)
+      updateNumericInput(session, "memorable_size", value = 762)  # 30 inches (trophy size)
+      updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
+      updateNumericInput(session, "vbk", value = 0.15)
+      updateNumericInput(session, "t0", value = -1.2)
+      updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
+      updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
+      showNotification("Loaded Blue Catfish parameters (FishBase/literature)", type = "message")
     }
     # If custom, don't update anything
   })
@@ -389,6 +421,44 @@ server <- function(input, output, session) {
         updateNumericInput(session, "vbk", value = 0.35)
         updateNumericInput(session, "t0", value = -0.4)
         updateNumericInput(session, "nat_mort", value = 0.35)  # M = K
+      }
+    }
+    # Channel Catfish growth parameters (literature-based estimates)
+    else if (input$species == "channel_catfish") {
+      if (input$growth_preset == "slow") {
+        updateNumericInput(session, "linf", value = 600)  # Slower growing populations
+        updateNumericInput(session, "vbk", value = 0.12)
+        updateNumericInput(session, "t0", value = -1.0)
+        updateNumericInput(session, "nat_mort", value = 0.12)  # M = K
+      } else if (input$growth_preset == "moderate") {
+        updateNumericInput(session, "linf", value = 650)  # Typical growth
+        updateNumericInput(session, "vbk", value = 0.18)
+        updateNumericInput(session, "t0", value = -1.2)
+        updateNumericInput(session, "nat_mort", value = 0.18)  # M = K
+      } else if (input$growth_preset == "fast") {
+        updateNumericInput(session, "linf", value = 700)  # Fast growing populations
+        updateNumericInput(session, "vbk", value = 0.24)
+        updateNumericInput(session, "t0", value = -1.5)
+        updateNumericInput(session, "nat_mort", value = 0.24)  # M = K
+      }
+    }
+    # Blue Catfish growth parameters (literature-based estimates, larger species)
+    else if (input$species == "blue_catfish") {
+      if (input$growth_preset == "slow") {
+        updateNumericInput(session, "linf", value = 800)  # Slower growing populations
+        updateNumericInput(session, "vbk", value = 0.10)
+        updateNumericInput(session, "t0", value = -1.0)
+        updateNumericInput(session, "nat_mort", value = 0.10)  # M = K
+      } else if (input$growth_preset == "moderate") {
+        updateNumericInput(session, "linf", value = 900)  # Typical growth
+        updateNumericInput(session, "vbk", value = 0.15)
+        updateNumericInput(session, "t0", value = -1.2)
+        updateNumericInput(session, "nat_mort", value = 0.15)  # M = K
+      } else if (input$growth_preset == "fast") {
+        updateNumericInput(session, "linf", value = 1000)  # Fast growing populations
+        updateNumericInput(session, "vbk", value = 0.20)
+        updateNumericInput(session, "t0", value = -1.5)
+        updateNumericInput(session, "nat_mort", value = 0.20)  # M = K
       }
     }
     # If "custom" is selected, don't update anything - user will enter their own values
