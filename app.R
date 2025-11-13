@@ -541,7 +541,9 @@ server <- function(input, output, session) {
 
         TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
         Wt <- (alfa * TL^bet) / 1000
-        Fec <- pmax(Wt - Wmat, 0)
+        # Fecundity with logistic maturity ogive (smoother than linear threshold)
+        maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
+        Fec <- Wt * maturity_ogive
 
         Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
 
@@ -1071,7 +1073,9 @@ server <- function(input, output, session) {
 
           TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
           Wt <- (alfa * TL^bet) / 1000
-          Fec <- pmax(Wt - Wmat, 0)
+          # Fecundity with logistic maturity ogive (smoother than linear threshold)
+          maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
+          Fec <- Wt * maturity_ogive
 
           Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
 
