@@ -304,7 +304,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "vbk", value = 0.15)
       updateNumericInput(session, "t0", value = -1.2)
       updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
+      updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: σR=0.49, Hilling et al. 2025)
       showNotification("Loaded Blue Catfish parameters (literature/Gabelhouse 1984)", type = "message")
     }
     # If custom, don't update anything
