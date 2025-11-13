@@ -244,8 +244,8 @@ server <- function(input, output, session) {
       # Craig et al. 1995; Weight-length from North American data
       updateNumericInput(session, "wl_a", value = 3.52e-6)  # From log10(W) = -5.453 + 3.180*log10(L)
       updateNumericInput(session, "wl_b", value = 3.18)
-      updateNumericInput(session, "mat_size", value = 380)  # ~15 inches
-      updateNumericInput(session, "memorable_size", value = 508)  # 20 inches
+      updateNumericInput(session, "mat_size", value = 380)  # ~15 inches (literature)
+      updateNumericInput(session, "memorable_size", value = 635)  # 25 inches (Gabelhouse 1984)
       updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
       updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
       updateNumericInput(session, "t0", value = -0.632)  # Craig et al. 1995
@@ -257,8 +257,8 @@ server <- function(input, output, session) {
       # Lake Trasimeno study; averaged male/female parameters
       updateNumericInput(session, "wl_a", value = 9.88e-6)  # From W=0.00988*L^3.15
       updateNumericInput(session, "wl_b", value = 3.15)
-      updateNumericInput(session, "mat_size", value = 250)  # ~10 inches
-      updateNumericInput(session, "memorable_size", value = 381)  # 15 inches
+      updateNumericInput(session, "mat_size", value = 250)  # ~10 inches (literature)
+      updateNumericInput(session, "memorable_size", value = 508)  # 20 inches (Gabelhouse 1984)
       updateNumericInput(session, "linf", value = 450)  # Average of male/female
       updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
       updateNumericInput(session, "t0", value = 0.04)
@@ -271,7 +271,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_a", value = 1.08e-5)
       updateNumericInput(session, "wl_b", value = 3.08)
       updateNumericInput(session, "mat_size", value = 250)  # ~10 inches (literature: 8-12" typical)
-      updateNumericInput(session, "memorable_size", value = 356)  # 14 inches
+      updateNumericInput(session, "memorable_size", value = 432)  # 17 inches (Gabelhouse 1984)
       updateNumericInput(session, "linf", value = 420)
       updateNumericInput(session, "vbk", value = 0.25)
       updateNumericInput(session, "t0", value = -0.3)
@@ -284,28 +284,28 @@ server <- function(input, output, session) {
       # W-L from NLLS: W(g) = 0.00522 * L(cm)^3.2293, converted to kg and mm
       updateNumericInput(session, "wl_a", value = 3.08e-9)
       updateNumericInput(session, "wl_b", value = 3.23)
-      updateNumericInput(session, "mat_size", value = 410)  # ~16 inches (Gabelhouse Quality size)
-      updateNumericInput(session, "memorable_size", value = 710)  # 28 inches (Gabelhouse Memorable)
+      updateNumericInput(session, "mat_size", value = 330)  # ~13 inches (literature: males 12", females 14")
+      updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
       updateNumericInput(session, "linf", value = 650)  # Moderate growth
       updateNumericInput(session, "vbk", value = 0.18)
       updateNumericInput(session, "t0", value = -1.2)
       updateNumericInput(session, "nat_mort", value = 0.18)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
-      showNotification("Loaded Channel Catfish parameters (Gabelhouse 1984)", type = "message")
+      showNotification("Loaded Channel Catfish parameters (literature/Gabelhouse 1984)", type = "message")
 
     } else if (input$species == "blue_catfish") {
       # Blue catfish parameters (FishBase/literature/Gabelhouse 1984)
       # W-L from FishBase Bayesian: W(g) = 0.00525 * L(cm)^3.11, converted to kg and mm
       updateNumericInput(session, "wl_a", value = 4.08e-9)
       updateNumericInput(session, "wl_b", value = 3.11)
-      updateNumericInput(session, "mat_size", value = 510)  # ~20 inches (Gabelhouse Quality size)
-      updateNumericInput(session, "memorable_size", value = 890)  # 35 inches (Gabelhouse Memorable)
+      updateNumericInput(session, "mat_size", value = 400)  # ~16 inches (literature: 35-50cm at age 4)
+      updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
       updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
       updateNumericInput(session, "vbk", value = 0.15)
       updateNumericInput(session, "t0", value = -1.2)
       updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
-      showNotification("Loaded Blue Catfish parameters (Gabelhouse 1984)", type = "message")
+      showNotification("Loaded Blue Catfish parameters (literature/Gabelhouse 1984)", type = "message")
     }
     # If custom, don't update anything
   })
