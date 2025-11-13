@@ -1131,22 +1131,63 @@ server <- function(input, output, session) {
             Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
           }
 
-          for(i in 2:Ymax) {
-            N[i, 1] <- Rcapacity[i - 1]
-            for(j in 2:Amax) {
-              trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
+          # ========== VECTORIZED SIMULATION ENGINE ==========
 
-              # Fishing mortality = harvest mortality + release mortality
-              # Release mortality applies to fish caught but not harvested
-              N[i, j] <- N[i-1, j-1] * So *
-                (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
-                (1 - Vulharv[j-1] * U)
+          # Build transition matrix T where T[j, j-1] = survival from age j-1 to j
+          T <- matrix(0, Amax, Amax)
+          for(j in 2:Amax) {
+            T[j, j-1] <- So * (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
+                              (1 - Vulharv[j-1] * U)
+          }
 
-              YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-              SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
-              Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
+          # Precompute matrix powers T^k for k = 0:(Ymax-1)
+          T_powers <- vector("list", Ymax)
+          T_powers[[1]] <- diag(Amax)  # T^0 = Identity
+          for(k_power in 1:(Ymax-1)) {
+            T_powers[[k_power+1]] <- expm::`%^%`(T, k_power)
+          }
+
+          # Precompute survival from age 1 to each age
+          surv_to_age <- numeric(Amax)
+          surv_to_age[1] <- 1
+          for(a in 2:Amax) {
+            surv_to_age[a] <- T_powers[[a]][a, 1]
+          }
+
+          # Initialize population matrix
+          N <- matrix(0, Ymax, Amax)
+          N[1, ] <- Ro * S
+
+          # Vectorized cohort contributions (for y >= a, y >= 2)
+          year_matrix <- matrix(1:Ymax, nrow = Ymax, ncol = Amax)
+          age_matrix <- matrix(1:Amax, nrow = Ymax, ncol = Amax, byrow = TRUE)
+          cohort_year_matrix <- year_matrix - age_matrix + 1
+          cohort_mask <- (cohort_year_matrix >= 1) & (year_matrix >= age_matrix) & (year_matrix >= 2)
+
+          R_matrix <- matrix(0, Ymax, Amax)
+          R_matrix[cohort_mask] <- Rcapacity[cohort_year_matrix[cohort_mask]]
+          surv_matrix <- matrix(rep(surv_to_age, each = Ymax), nrow = Ymax, ncol = Amax)
+          N[cohort_mask] <- (R_matrix * surv_matrix)[cohort_mask]
+
+          # Initial population contributions (for 2 <= y < a)
+          for(y in 2:min(Amax-1, Ymax)) {
+            if(y < Amax) {
+              ages <- (y+1):Amax
+              initial_ages <- 1:(Amax-y)
+              T_power <- T_powers[[y]]
+              N[y, ages] <- N[1, initial_ages] * T_power[cbind(ages, initial_ages)]
             }
           }
+
+          # Precompute trophy vulnerability (vectorized)
+          trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+
+          # Vectorized metric calculations (all years at once)
+          YPR <- (rowSums(sweep(N, 2, Wt * Vulharv, "*")) * U) / N[, 1]
+          SPRt <- rowSums(sweep(N, 2, Fec, "*")) / sum(N[1, ] * Fec)
+          Prop <- rowSums(sweep(N, 2, trophyvul, "*")) / rowSums(N)
+
+          # ========== END VECTORIZED ENGINE ==========
 
           ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
           spr_vals[k] <- mean(SPRt[50:Ymax], na.rm = TRUE)
