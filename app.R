@@ -250,7 +250,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
       updateNumericInput(session, "t0", value = -0.632)  # Craig et al. 1995
       updateNumericInput(session, "nat_mort", value = 0.215)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
+      updateNumericInput(session, "rec_cv", value = 1.1)  # Very high recruitment variability (literature: CV=112%)
       showNotification("Loaded Walleye parameters (Craig et al. 1995)", type = "message")
 
     } else if (input$species == "lmb") {
@@ -263,7 +263,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
       updateNumericInput(session, "t0", value = 0.04)
       updateNumericInput(session, "nat_mort", value = 0.35)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.45)  # Moderate recruitment variability
+      updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: CV>0.5)
       showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
 
     } else if (input$species == "smb") {
