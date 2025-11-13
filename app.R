@@ -280,32 +280,32 @@ server <- function(input, output, session) {
       showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
 
     } else if (input$species == "channel_catfish") {
-      # Channel catfish parameters (FishBase/literature)
+      # Channel catfish parameters (FishBase/literature/Gabelhouse 1984)
       # W-L from NLLS: W(g) = 0.00522 * L(cm)^3.2293, converted to kg and mm
       updateNumericInput(session, "wl_a", value = 3.08e-9)
       updateNumericInput(session, "wl_b", value = 3.23)
-      updateNumericInput(session, "mat_size", value = 431)  # ~17 inches (FishBase: 43.1cm)
-      updateNumericInput(session, "memorable_size", value = 610)  # 24 inches (trophy size)
+      updateNumericInput(session, "mat_size", value = 410)  # ~16 inches (Gabelhouse Quality size)
+      updateNumericInput(session, "memorable_size", value = 710)  # 28 inches (Gabelhouse Memorable)
       updateNumericInput(session, "linf", value = 650)  # Moderate growth
       updateNumericInput(session, "vbk", value = 0.18)
       updateNumericInput(session, "t0", value = -1.2)
       updateNumericInput(session, "nat_mort", value = 0.18)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
-      showNotification("Loaded Channel Catfish parameters (FishBase/literature)", type = "message")
+      showNotification("Loaded Channel Catfish parameters (Gabelhouse 1984)", type = "message")
 
     } else if (input$species == "blue_catfish") {
-      # Blue catfish parameters (FishBase/literature)
+      # Blue catfish parameters (FishBase/literature/Gabelhouse 1984)
       # W-L from FishBase Bayesian: W(g) = 0.00525 * L(cm)^3.11, converted to kg and mm
       updateNumericInput(session, "wl_a", value = 4.08e-9)
       updateNumericInput(session, "wl_b", value = 3.11)
-      updateNumericInput(session, "mat_size", value = 500)  # ~20 inches (larger than channel)
-      updateNumericInput(session, "memorable_size", value = 762)  # 30 inches (trophy size)
+      updateNumericInput(session, "mat_size", value = 510)  # ~20 inches (Gabelhouse Quality size)
+      updateNumericInput(session, "memorable_size", value = 890)  # 35 inches (Gabelhouse Memorable)
       updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
       updateNumericInput(session, "vbk", value = 0.15)
       updateNumericInput(session, "t0", value = -1.2)
       updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
-      showNotification("Loaded Blue Catfish parameters (FishBase/literature)", type = "message")
+      showNotification("Loaded Blue Catfish parameters (Gabelhouse 1984)", type = "message")
     }
     # If custom, don't update anything
   })
