@@ -686,6 +686,16 @@ server <- function(input, output, session) {
     cat(sprintf("  SPR:              %.4f ± %.4f\n",
                 mean(results$SPR, na.rm = TRUE),
                 sd(results$SPR, na.rm = TRUE)))
+
+    # Management warning if SPR < 0.3
+    mean_spr <- mean(results$SPR, na.rm = TRUE)
+    if(mean_spr < 0.3) {
+      cat("\n")
+      cat("  ⚠️  WARNING: SPR < 0.3 (Overfishing threshold)\n")
+      cat("  Population may be experiencing recruitment overfishing.\n")
+      cat("  Consider reducing exploitation or implementing protective regulations.\n")
+    }
+
     cat(sprintf("  Prop Memorable:   %.4f ± %.4f\n",
                 mean(results$Prop, na.rm = TRUE),
                 sd(results$Prop, na.rm = TRUE)))
