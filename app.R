@@ -514,6 +514,7 @@ server <- function(input, output, session) {
       all_YPR <- matrix(NA, Ymax, nsim)
       all_SPR <- matrix(NA, Ymax, nsim)
       all_Prop <- matrix(NA, Ymax, nsim)
+      all_Abundance <- matrix(NA, Amax, nsim)  # Store population structure from all sims
 
       for(k in 1:nsim) {
 
@@ -605,18 +606,8 @@ server <- function(input, output, session) {
         all_SPR[, k] <- SPRt
         all_Prop[, k] <- Prop
 
-        # Store population structure from first simulation
-        if(k == 1) {
-          pop_data <- data.frame(
-            Age = Age,
-            Length = TL,
-            Weight = Wt,
-            Abundance = N[Ymax, ],
-            VulCapture = Vulcap,
-            VulHarvest = Vulharv
-          )
-          pop_structure_data(pop_data)
-        }
+        # Store final year abundance from this simulation
+        all_Abundance[, k] <- N[Ymax, ]
       }
 
       # Calculate mean and SD across all simulations at each year
@@ -639,6 +630,19 @@ server <- function(input, output, session) {
       ts_data$Prop_upper <- ts_data$Prop_mean + 1.96 * ts_data$Prop_sd
 
       time_series_data(ts_data)
+
+      # Calculate median and quantiles for population structure across all simulations
+      pop_data <- data.frame(
+        Age = Age,
+        Length = TL,
+        Weight = Wt,
+        Abundance_median = apply(all_Abundance, 1, median, na.rm = TRUE),
+        Abundance_q25 = apply(all_Abundance, 1, quantile, probs = 0.25, na.rm = TRUE),
+        Abundance_q75 = apply(all_Abundance, 1, quantile, probs = 0.75, na.rm = TRUE),
+        VulCapture = Vulcap,
+        VulHarvest = Vulharv
+      )
+      pop_structure_data(pop_data)
 
       sim_results(results)
     })
@@ -799,10 +803,13 @@ server <- function(input, output, session) {
     pop_data <- pop_structure_data()
 
     p <- ggplot(pop_data, aes(x = Age)) +
-      geom_col(aes(y = Abundance), fill = "steelblue", alpha = 0.7) +
-      geom_line(aes(y = Abundance), color = "darkblue", size = 1) +
-      geom_point(aes(y = Abundance), color = "darkblue", size = 3) +
-      labs(title = "Population Structure by Age (Final Year)",
+      geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
+                  fill = "steelblue", alpha = 0.3) +
+      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.5) +
+      geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
+      geom_point(aes(y = Abundance_median), color = "darkblue", size = 3) +
+      labs(title = "Population Structure by Age (Median across simulations)",
+           subtitle = "Shaded area shows 25th-75th percentile range",
            x = "Age", y = "Abundance") +
       theme_minimal()
 
