@@ -537,7 +537,6 @@ server <- function(input, output, session) {
         Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
 
         U <- input$exploitation
-        Uo <- input$exploitation + 0.1
 
         TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
         Wt <- (alfa * TL^bet) / 1000
@@ -578,8 +577,10 @@ server <- function(input, output, session) {
           for(j in 2:Amax) {
             trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
 
+            # Fishing mortality = harvest mortality + release mortality
+            # Release mortality applies to fish caught but not harvested
             N[i, j] <- N[i-1, j-1] * So *
-              (1 - (Vulcap[j-1] * Uo - Vulharv[j-1] * U) * DisMort) *
+              (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
               (1 - Vulharv[j-1] * U)
 
             Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
@@ -1069,7 +1070,6 @@ server <- function(input, output, session) {
           Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
 
           U <- U_test
-          Uo <- U_test + 0.1
 
           TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
           Wt <- (alfa * TL^bet) / 1000
@@ -1110,8 +1110,10 @@ server <- function(input, output, session) {
             for(j in 2:Amax) {
               trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
 
+              # Fishing mortality = harvest mortality + release mortality
+              # Release mortality applies to fish caught but not harvested
               N[i, j] <- N[i-1, j-1] * So *
-                (1 - (Vulcap[j-1] * Uo - Vulharv[j-1] * U) * DisMort) *
+                (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
                 (1 - Vulharv[j-1] * U)
 
               YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
