@@ -532,7 +532,9 @@ server <- function(input, output, session) {
         N[1, 1] <- 10000
         N[1, ] <- Ro * S
 
-        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = input$rec_cv)
+        # Convert CV to lognormal sigma: σ = sqrt(log(CV² + 1))
+        sigmaR <- sqrt(log(input$rec_cv^2 + 1))
+        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
 
         U <- input$exploitation
         Uo <- input$exploitation + 0.1
@@ -1060,7 +1062,9 @@ server <- function(input, output, session) {
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
 
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = input$rec_cv)
+          # Convert CV to lognormal sigma: σ = sqrt(log(CV² + 1))
+          sigmaR <- sqrt(log(input$rec_cv^2 + 1))
+          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
 
           U <- U_test
           Uo <- U_test + 0.1
