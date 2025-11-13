@@ -244,7 +244,7 @@ server <- function(input, output, session) {
       # Craig et al. 1995; Weight-length from North American data
       updateNumericInput(session, "wl_a", value = 3.52e-6)  # From log10(W) = -5.453 + 3.180*log10(L)
       updateNumericInput(session, "wl_b", value = 3.18)
-      updateNumericInput(session, "mat_size", value = 450)  # ~17.7 inches (female maturity, literature)
+      updateNumericInput(session, "mat_size", value = 356)  # 14 inches (female maturity lower range, literature)
       updateNumericInput(session, "memorable_size", value = 635)  # 25 inches (Gabelhouse 1984)
       updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
       updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
@@ -270,7 +270,7 @@ server <- function(input, output, session) {
       # Conservative estimates based on typical smallmouth bass populations
       updateNumericInput(session, "wl_a", value = 1.08e-5)
       updateNumericInput(session, "wl_b", value = 3.08)
-      updateNumericInput(session, "mat_size", value = 280)  # 11 inches (female first spawn, literature)
+      updateNumericInput(session, "mat_size", value = 254)  # 10 inches (female first spawn lower range, literature)
       updateNumericInput(session, "memorable_size", value = 432)  # 17 inches (Gabelhouse 1984)
       updateNumericInput(session, "linf", value = 420)
       updateNumericInput(session, "vbk", value = 0.25)
@@ -298,7 +298,7 @@ server <- function(input, output, session) {
       # W-L from FishBase Bayesian: W(g) = 0.00525 * L(cm)^3.11, converted to kg and mm
       updateNumericInput(session, "wl_a", value = 4.08e-9)
       updateNumericInput(session, "wl_b", value = 3.11)
-      updateNumericInput(session, "mat_size", value = 610)  # 24 inches (female maturity, literature)
+      updateNumericInput(session, "mat_size", value = 350)  # ~14 inches (female maturity lower range, literature: 35-50cm)
       updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
       updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
       updateNumericInput(session, "vbk", value = 0.15)
