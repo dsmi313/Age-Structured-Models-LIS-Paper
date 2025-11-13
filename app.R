@@ -284,7 +284,7 @@ server <- function(input, output, session) {
       # W-L from NLLS: W(g) = 0.00522 * L(cm)^3.2293, converted to kg and mm
       updateNumericInput(session, "wl_a", value = 3.08e-9)
       updateNumericInput(session, "wl_b", value = 3.23)
-      updateNumericInput(session, "mat_size", value = 330)  # ~13 inches (literature: males 12", females 14")
+      updateNumericInput(session, "mat_size", value = 356)  # 14 inches (literature: female maturity)
       updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
       updateNumericInput(session, "linf", value = 650)  # Moderate growth
       updateNumericInput(session, "vbk", value = 0.18)
