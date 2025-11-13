@@ -3,7 +3,6 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(plotly)
-library(expm)
 
 # UI Definition
 ui <- fluidPage(
@@ -498,47 +497,51 @@ server <- function(input, output, session) {
 
       nsim <- input$nsim
       results <- data.frame(
-        sim = 1:nsim,
-        YPR = rep(NA, nsim),
-        SPR = rep(NA, nsim),
-        Prop = rep(NA, nsim)
+        sim  = 1:nsim,
+        YPR  = NA_real_,
+        SPR  = NA_real_,
+        Prop = NA_real_
       )
 
-      all_YPR <- matrix(NA, Ymax, nsim)
-      all_SPR <- matrix(NA, Ymax, nsim)
-      all_Prop <- matrix(NA, Ymax, nsim)
-      all_Abundance <- matrix(NA, Amax, nsim)
+      all_YPR       <- matrix(NA_real_, nrow = Ymax, ncol = nsim)
+      all_SPR       <- matrix(NA_real_, nrow = Ymax, ncol = nsim)
+      all_Prop      <- matrix(NA_real_, nrow = Ymax, ncol = nsim)
+      all_Abundance <- matrix(NA_real_, nrow = Amax, ncol = nsim)
 
-      for(k in 1:nsim) {
+      for (k in 1:nsim) {
 
-        incProgress(1/nsim, detail = paste("Simulation", k, "of", nsim))
+        incProgress(1 / nsim, detail = paste("Simulation", k, "of", nsim))
 
+        ## 1) Draw maturity weight
         Wmat <- (alfa * rnorm(1, input$mat_size, input$mat_size * 0.1)^bet) / 1000
 
-        S <- exp(-Nat_mort)^(Age - 1)
+        ## 2) Basic survivorship from natural mortality only
+        S  <- exp(-Nat_mort)^(Age - 1)
         So <- exp(-Nat_mort)
 
-        sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+        ## 3) Recruitment deviations
+        sigmaR    <- sqrt(log(input$rec_cv^2 + 1))
+        Rcapacity <- Ro * rlnorm(Ymax, meanlog = 0, sdlog = sigmaR)
 
-        U <- input$exploitation
-
+        ## 4) Growth, weights, fecundity
         TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
         Wt <- (alfa * TL^bet) / 1000
-        maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-        Fec <- Wt * maturity_ogive
 
+        maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
+        Fec            <- Wt * maturity_ogive
+
+        ## 5) Vulnerabilities
         Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
 
-        if(input$enable_slot) {
-          Slot_upper <- input$slot_upper
-          Slot_upperSD <- 0.01
-          HarvlimSD_slot <- 0.01
+        if (input$enable_slot) {
+          Slot_upper      <- input$slot_upper
+          Slot_upperSD    <- 0.01
+          HarvlimSD_slot  <- 0.01
 
           Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
           Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
 
-          if(input$slot_type == "traditional") {
+          if (input$slot_type == "traditional") {
             Vulharv <- Vulharv_above_min * Vulharv_below_max
           } else {
             Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
@@ -547,79 +550,46 @@ server <- function(input, output, session) {
           Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
         }
 
-        # ========== VECTORIZED SIMULATION ENGINE ==========
+        ## 6) Effective per-age annual survival including fishing & discard
+        U   <- input$exploitation
+        phi <- So * (1 - (Vulcap - Vulharv) * U * DisMort) * (1 - Vulharv * U)
+        # length(phi) = Amax, applies to ages 1..Amax
 
-        # Build transition matrix T where T[j, j-1] = survival from age j-1 to j
-        T <- matrix(0, Amax, Amax)
-        for(j in 2:Amax) {
-          T[j, j-1] <- So * (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
-                            (1 - Vulharv[j-1] * U)
-        }
-
-        # Precompute matrix powers T^k for k = 0:(Ymax-1)
-        T_powers <- vector("list", Ymax)
-        T_powers[[1]] <- diag(Amax)  # T^0 = Identity
-        for(k_power in 1:(Ymax-1)) {
-          T_powers[[k_power+1]] <- expm::`%^%`(T, k_power)
-        }
-
-        # Precompute survival from age 1 to each age
-        surv_to_age <- numeric(Amax)
-        surv_to_age[1] <- 1
-        for(a in 2:Amax) {
-          surv_to_age[a] <- T_powers[[a]][a, 1]
-        }
-
-        # Initialize population matrix
-        N <- matrix(0, Ymax, Amax)
+        ## 7) Initialize N[year, age]
+        N <- matrix(0, nrow = Ymax, ncol = Amax)
+        # Initial age structure at year 1 (unfished equilibrium guess)
         N[1, ] <- Ro * S
 
-        # Vectorized cohort contributions (for y >= a, y >= 2)
-        year_matrix <- matrix(1:Ymax, nrow = Ymax, ncol = Amax)
-        age_matrix <- matrix(1:Amax, nrow = Ymax, ncol = Amax, byrow = TRUE)
-        cohort_year_matrix <- year_matrix - age_matrix + 1
-        cohort_mask <- (cohort_year_matrix >= 1) & (year_matrix >= age_matrix) & (year_matrix >= 2)
+        ## 8) Forward simulation over years (ages vectorized inside)
+        for (y in 1:(Ymax - 1)) {
+          # recruitment enters age-1 in year y+1
+          N[y + 1, 1] <- Rcapacity[y + 1]
 
-        R_matrix <- matrix(0, Ymax, Amax)
-        R_matrix[cohort_mask] <- Rcapacity[cohort_year_matrix[cohort_mask]]
-        surv_matrix <- matrix(rep(surv_to_age, each = Ymax), nrow = Ymax, ncol = Amax)
-        N[cohort_mask] <- (R_matrix * surv_matrix)[cohort_mask]
-
-        # Initial population contributions (for 2 <= y < a)
-        for(y in 2:min(Amax-1, Ymax)) {
-          if(y < Amax) {
-            ages <- (y+1):Amax
-            initial_ages <- 1:(Amax-y)
-            T_power <- T_powers[[y]]
-            N[y, ages] <- N[1, initial_ages] * T_power[cbind(ages, initial_ages)]
-          }
+          # older ages shift with survival:
+          # age a at year y+1 comes from age a-1 at year y
+          N[y + 1, 2:Amax] <- N[y, 1:(Amax - 1)] * phi[1:(Amax - 1)]
         }
 
-        # Precompute trophy vulnerability (vectorized)
-        trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+        ## 9) Trophy vulnerability
+        trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) /
+                                    (input$memorable_size * 0.1)))) * Vulcap
 
-        # Vectorized metric calculations (all years at once)
-        Yield <- rowSums(sweep(N, 2, Wt * Vulharv, "*")) * U
-        SPRt <- rowSums(sweep(N, 2, Fec, "*")) / sum(N[1, ] * Fec)
-        YPR <- (rowSums(sweep(N, 2, Wt * Vulharv, "*")) * U) / N[, 1]
-        Prop <- rowSums(sweep(N, 2, trophyvul, "*")) / rowSums(N)
+        ## 10) Metrics by year (fully vectorized over age)
+        catch_biomass <- rowSums(sweep(N, 2, Wt * Vulharv, "*")) * U
+        SPRt          <- rowSums(sweep(N, 2, Fec, "*")) / sum(N[1, ] * Fec)
+        YPR           <- catch_biomass / N[, 1]
+        Prop          <- rowSums(sweep(N, 2, trophyvul, "*")) / rowSums(N)
 
-        # ========== END VECTORIZED ENGINE ==========
+        ## 11) Steady-state summaries (years 50:Ymax)
+        idx_ss               <- 50:Ymax
+        results$SPR[k]       <- mean(SPRt[idx_ss], na.rm = TRUE)
+        results$YPR[k]       <- mean(YPR[idx_ss],  na.rm = TRUE)
+        results$Prop[k]      <- mean(Prop[idx_ss], na.rm = TRUE)
 
-        SPRout <- SPRt[50:Ymax]
-        results$SPR[k] <- mean(SPRout, na.rm = TRUE)
-
-        YPRout <- YPR[50:Ymax]
-        results$YPR[k] <- mean(YPRout, na.rm = TRUE)
-
-        Propout <- Prop[50:Ymax]
-        results$Prop[k] <- mean(Propout, na.rm = TRUE)
-
-        all_YPR[, k] <- YPR
-        all_SPR[, k] <- SPRt
-        all_Prop[, k] <- Prop
-
-        all_Abundance[, k] <- N[Ymax, ]
+        all_YPR[, k]         <- YPR
+        all_SPR[, k]         <- SPRt
+        all_Prop[, k]        <- Prop
+        all_Abundance[, k]   <- N[Ymax, ]
       }
 
       ts_data <- data.frame(
@@ -1079,118 +1049,73 @@ server <- function(input, output, session) {
         prop_vals <- numeric(nsim)
 
         for(k in 1:nsim) {
-          N <- matrix(NA, Ymax, Amax)
+          ## 1) Draw maturity weight
           Wmat <- (alfa * rnorm(1, input$mat_size, input$mat_size * 0.1)^bet) / 1000
-          YPR <- rep(NA, Ymax)
-          SPRt <- rep(NA, Ymax)
-          Prop <- rep(NA, Ymax)
 
-          S <- exp(-Nat_mort)^(Age - 1)
+          ## 2) Basic survivorship from natural mortality only
+          S  <- exp(-Nat_mort)^(Age - 1)
           So <- exp(-Nat_mort)
 
-          N[1, 1] <- 10000
-          N[1, ] <- Ro * S
+          ## 3) Recruitment deviations
+          sigmaR    <- sqrt(log(input$rec_cv^2 + 1))
+          Rcapacity <- Ro * rlnorm(Ymax, meanlog = 0, sdlog = sigmaR)
 
-          # Convert CV to lognormal sigma: σ = sqrt(log(CV² + 1))
-          sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
-
+          ## 4) Use the test exploitation rate
           U <- U_test
 
+          ## 5) Growth, weights, fecundity
           TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
           Wt <- (alfa * TL^bet) / 1000
-          # Fecundity with logistic maturity ogive (smoother than linear threshold)
-          maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-          Fec <- Wt * maturity_ogive
 
+          maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
+          Fec            <- Wt * maturity_ogive
+
+          ## 6) Vulnerabilities
           Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
 
-          # Calculate harvest vulnerability with or without slot limit
-          if(input$enable_slot) {
-            Slot_upper <- input$slot_upper
-            # Use extremely small SD for near-step-function slot boundaries
-            Slot_upperSD <- 0.01
-            HarvlimSD_slot <- 0.01
+          if (input$enable_slot) {
+            Slot_upper      <- input$slot_upper
+            Slot_upperSD    <- 0.01
+            HarvlimSD_slot  <- 0.01
 
-            # Logistic for minimum size (vulnerable above min)
             Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
-            # Logistic for maximum size (vulnerable below max)
             Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
 
-            if(input$slot_type == "traditional") {
-              # Traditional slot: harvest ONLY within slot (min to max)
-              # Zero vulnerability outside slot
+            if (input$slot_type == "traditional") {
               Vulharv <- Vulharv_above_min * Vulharv_below_max
             } else {
-              # Protective slot: PROTECT within slot (min to max)
-              # Zero vulnerability within slot, full vulnerability outside
               Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
             }
           } else {
-            # Standard minimum length limit only
             Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
           }
 
-          # ========== VECTORIZED SIMULATION ENGINE ==========
+          ## 7) Effective per-age annual survival including fishing & discard
+          phi <- So * (1 - (Vulcap - Vulharv) * U * DisMort) * (1 - Vulharv * U)
 
-          # Build transition matrix T where T[j, j-1] = survival from age j-1 to j
-          T <- matrix(0, Amax, Amax)
-          for(j in 2:Amax) {
-            T[j, j-1] <- So * (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
-                              (1 - Vulharv[j-1] * U)
-          }
-
-          # Precompute matrix powers T^k for k = 0:(Ymax-1)
-          T_powers <- vector("list", Ymax)
-          T_powers[[1]] <- diag(Amax)  # T^0 = Identity
-          for(k_power in 1:(Ymax-1)) {
-            T_powers[[k_power+1]] <- expm::`%^%`(T, k_power)
-          }
-
-          # Precompute survival from age 1 to each age
-          surv_to_age <- numeric(Amax)
-          surv_to_age[1] <- 1
-          for(a in 2:Amax) {
-            surv_to_age[a] <- T_powers[[a]][a, 1]
-          }
-
-          # Initialize population matrix
-          N <- matrix(0, Ymax, Amax)
+          ## 8) Initialize N[year, age]
+          N <- matrix(0, nrow = Ymax, ncol = Amax)
           N[1, ] <- Ro * S
 
-          # Vectorized cohort contributions (for y >= a, y >= 2)
-          year_matrix <- matrix(1:Ymax, nrow = Ymax, ncol = Amax)
-          age_matrix <- matrix(1:Amax, nrow = Ymax, ncol = Amax, byrow = TRUE)
-          cohort_year_matrix <- year_matrix - age_matrix + 1
-          cohort_mask <- (cohort_year_matrix >= 1) & (year_matrix >= age_matrix) & (year_matrix >= 2)
-
-          R_matrix <- matrix(0, Ymax, Amax)
-          R_matrix[cohort_mask] <- Rcapacity[cohort_year_matrix[cohort_mask]]
-          surv_matrix <- matrix(rep(surv_to_age, each = Ymax), nrow = Ymax, ncol = Amax)
-          N[cohort_mask] <- (R_matrix * surv_matrix)[cohort_mask]
-
-          # Initial population contributions (for 2 <= y < a)
-          for(y in 2:min(Amax-1, Ymax)) {
-            if(y < Amax) {
-              ages <- (y+1):Amax
-              initial_ages <- 1:(Amax-y)
-              T_power <- T_powers[[y]]
-              N[y, ages] <- N[1, initial_ages] * T_power[cbind(ages, initial_ages)]
-            }
+          ## 9) Forward simulation over years (ages vectorized inside)
+          for (y in 1:(Ymax - 1)) {
+            N[y + 1, 1]      <- Rcapacity[y + 1]
+            N[y + 1, 2:Amax] <- N[y, 1:(Amax - 1)] * phi[1:(Amax - 1)]
           }
 
-          # Precompute trophy vulnerability (vectorized)
-          trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+          ## 10) Trophy vulnerability
+          trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) /
+                                      (input$memorable_size * 0.1)))) * Vulcap
 
-          # Vectorized metric calculations (all years at once)
-          YPR <- (rowSums(sweep(N, 2, Wt * Vulharv, "*")) * U) / N[, 1]
-          SPRt <- rowSums(sweep(N, 2, Fec, "*")) / sum(N[1, ] * Fec)
-          Prop <- rowSums(sweep(N, 2, trophyvul, "*")) / rowSums(N)
+          ## 11) Metrics by year (fully vectorized over age)
+          catch_biomass <- rowSums(sweep(N, 2, Wt * Vulharv, "*")) * U
+          SPRt          <- rowSums(sweep(N, 2, Fec, "*")) / sum(N[1, ] * Fec)
+          YPR           <- catch_biomass / N[, 1]
+          Prop          <- rowSums(sweep(N, 2, trophyvul, "*")) / rowSums(N)
 
-          # ========== END VECTORIZED ENGINE ==========
-
-          ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
-          spr_vals[k] <- mean(SPRt[50:Ymax], na.rm = TRUE)
+          ## 12) Store steady-state summaries
+          ypr_vals[k]  <- mean(YPR[50:Ymax], na.rm = TRUE)
+          spr_vals[k]  <- mean(SPRt[50:Ymax], na.rm = TRUE)
           prop_vals[k] <- mean(Prop[50:Ymax], na.rm = TRUE)
         }
 
