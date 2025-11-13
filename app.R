@@ -276,7 +276,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "vbk", value = 0.25)
       updateNumericInput(session, "t0", value = -0.3)
       updateNumericInput(session, "nat_mort", value = 0.25)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
+      updateNumericInput(session, "rec_cv", value = 0.7)  # Moderate-high recruitment variability (literature: CV=52-80%)
       showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
 
     } else if (input$species == "channel_catfish") {
