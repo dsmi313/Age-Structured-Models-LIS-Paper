@@ -40,6 +40,9 @@ ui <- fluidPage(
 
       numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.1, max = 1.5, step = 0.05),
       helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (higher = more variable)"))),
+
+      numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 50, step = 1),
+      helpText(tags$small(tags$em("Maximum age class in the model"))),
       br(),
 
       # Growth Parameters
@@ -189,7 +192,7 @@ ui <- fluidPage(
                  h4("Model Description"),
                  p("The model simulates fish populations using age-structured dynamics with:"),
                  tags$ul(
-                   tags$li("Age classes 1-8 years"),
+                   tags$li("Configurable age classes (species-specific maximum ages)"),
                    tags$li("Species-specific von Bertalanffy growth"),
                    tags$li("Customizable weight-length relationships"),
                    tags$li("Size-dependent vulnerability to capture and harvest"),
@@ -238,6 +241,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "t0", value = 0.197)
       updateNumericInput(session, "nat_mort", value = 0.374)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
+      updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
       showNotification("Loaded Crappie parameters", type = "message")
 
     } else if (input$species == "walleye") {
@@ -246,11 +250,13 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.18)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (female maturity lower range, literature)
       updateNumericInput(session, "memorable_size", value = 635)  # 25 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 356)  # 14 inches minimum harvest size
       updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
       updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
       updateNumericInput(session, "t0", value = -0.632)  # Craig et al. 1995
       updateNumericInput(session, "nat_mort", value = 0.215)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 1.1)  # Very high recruitment variability (literature: CV=112%)
+      updateNumericInput(session, "amax", value = 15)  # Walleye can live 15-20 years
       showNotification("Loaded Walleye parameters (Craig et al. 1995)", type = "message")
 
     } else if (input$species == "lmb") {
@@ -259,11 +265,13 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.15)
       updateNumericInput(session, "mat_size", value = 203)  # 8 inches (female maturity, literature)
       updateNumericInput(session, "memorable_size", value = 508)  # 20 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
       updateNumericInput(session, "linf", value = 450)  # Average of male/female
       updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
       updateNumericInput(session, "t0", value = 0.04)
       updateNumericInput(session, "nat_mort", value = 0.35)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: CV>0.5)
+      updateNumericInput(session, "amax", value = 15)  # Largemouth bass can live 10-16 years
       showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
 
     } else if (input$species == "smb") {
@@ -272,11 +280,13 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.08)
       updateNumericInput(session, "mat_size", value = 254)  # 10 inches (female first spawn lower range, literature)
       updateNumericInput(session, "memorable_size", value = 432)  # 17 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
       updateNumericInput(session, "linf", value = 420)
       updateNumericInput(session, "vbk", value = 0.25)
       updateNumericInput(session, "t0", value = -0.3)
       updateNumericInput(session, "nat_mort", value = 0.25)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.7)  # Moderate-high recruitment variability (literature: CV=52-80%)
+      updateNumericInput(session, "amax", value = 15)  # Smallmouth bass can live 10-18 years
       showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
 
     } else if (input$species == "channel_catfish") {
@@ -286,11 +296,13 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.23)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (literature: female maturity)
       updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
       updateNumericInput(session, "linf", value = 650)  # Moderate growth
       updateNumericInput(session, "vbk", value = 0.18)
       updateNumericInput(session, "t0", value = -1.2)
       updateNumericInput(session, "nat_mort", value = 0.18)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
+      updateNumericInput(session, "amax", value = 24)  # Channel catfish can live 20-24 years
       showNotification("Loaded Channel Catfish parameters (literature/Gabelhouse 1984)", type = "message")
 
     } else if (input$species == "blue_catfish") {
@@ -300,11 +312,13 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.11)
       updateNumericInput(session, "mat_size", value = 350)  # ~14 inches (female maturity lower range, literature: 35-50cm)
       updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
       updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
       updateNumericInput(session, "vbk", value = 0.15)
       updateNumericInput(session, "t0", value = -1.2)
       updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: σR=0.49, Hilling et al. 2025)
+      updateNumericInput(session, "amax", value = 30)  # Blue catfish can live 25-30 years
       showNotification("Loaded Blue Catfish parameters (literature/Gabelhouse 1984)", type = "message")
     }
     # If custom, don't update anything
@@ -477,7 +491,7 @@ server <- function(input, output, session) {
 
       # Get parameters
       growth_params <- get_growth_params()
-      Amax <- 8
+      Amax <- input$amax
       Ymax <- input$ymax
 
       # Weight-length equation (species-specific)
@@ -1031,7 +1045,7 @@ server <- function(input, output, session) {
     withProgress(message = 'Generating yield curve...', value = 0, {
 
       growth_params <- get_growth_params()
-      Amax <- 8
+      Amax <- input$amax
       Ymax <- input$ymax
 
       # Weight-length equation (species-specific)
