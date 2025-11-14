@@ -946,6 +946,9 @@ server <- function(input, output, session) {
     details <- detailed_results()
     req(nrow(details) > 0)
 
+    # Preserve order scenarios were run (saved) instead of alphabetical
+    details$Scenario <- factor(details$Scenario, levels = unique(details$Scenario))
+
     p <- ggplot(details, aes(x = Scenario, y = YPR, fill = Scenario)) +
       geom_violin(alpha = 0.7) +
       geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
@@ -963,6 +966,9 @@ server <- function(input, output, session) {
     details <- detailed_results()
     req(nrow(details) > 0)
 
+    # Preserve order scenarios were run (saved) instead of alphabetical
+    details$Scenario <- factor(details$Scenario, levels = unique(details$Scenario))
+
     p <- ggplot(details, aes(x = Scenario, y = SPR, fill = Scenario)) +
       geom_violin(alpha = 0.7) +
       geom_boxplot(width = 0.1, fill = "white", alpha = 0.5) +
@@ -979,6 +985,9 @@ server <- function(input, output, session) {
   output$compare_prop <- renderPlotly({
     details <- detailed_results()
     req(nrow(details) > 0)
+
+    # Preserve order scenarios were run (saved) instead of alphabetical
+    details$Scenario <- factor(details$Scenario, levels = unique(details$Scenario))
 
     p <- ggplot(details, aes(x = Scenario, y = Prop, fill = Scenario)) +
       geom_violin(alpha = 0.7) +
