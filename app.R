@@ -41,7 +41,7 @@ ui <- fluidPage(
       numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.1, max = 1.5, step = 0.05),
       helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (higher = more variable)"))),
 
-      numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 30, step = 1),
+      numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 50, step = 1),
       helpText(tags$small(tags$em("Maximum age class in the model"))),
       br(),
 
