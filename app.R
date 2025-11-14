@@ -293,7 +293,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.23)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (literature: female maturity)
       updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
-      updateNumericInput(session, "amax", value = 18)  # Typical maximum age for channel catfish
+      updateNumericInput(session, "amax", value = 24)  # Maximum recorded 40 years; using 24 as plus-group
       updateNumericInput(session, "linf", value = 650)  # Moderate growth
       updateNumericInput(session, "vbk", value = 0.18)
       updateNumericInput(session, "t0", value = -1.2)
@@ -308,7 +308,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.11)
       updateNumericInput(session, "mat_size", value = 350)  # ~14 inches (female maturity lower range, literature: 35-50cm)
       updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
-      updateNumericInput(session, "amax", value = 25)  # Typical maximum age for blue catfish (long-lived species)
+      updateNumericInput(session, "amax", value = 30)  # Maximum recorded 40 years; using 30 as plus-group (long-lived species)
       updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
       updateNumericInput(session, "vbk", value = 0.15)
       updateNumericInput(session, "t0", value = -1.2)
