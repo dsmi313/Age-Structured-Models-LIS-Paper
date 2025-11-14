@@ -40,6 +40,9 @@ ui <- fluidPage(
 
       numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.1, max = 1.5, step = 0.05),
       helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (higher = more variable)"))),
+
+      numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 30, step = 1),
+      helpText(tags$small(tags$em("Maximum age class in the model"))),
       br(),
 
       # Growth Parameters
@@ -233,6 +236,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.38)
       updateNumericInput(session, "mat_size", value = 180)  # ~7 inches (literature: 6-7" typical)
       updateNumericInput(session, "memorable_size", value = 305)  # 12 inches
+      updateNumericInput(session, "amax", value = 8)  # Typical maximum age for crappie
       updateNumericInput(session, "linf", value = 353)
       updateNumericInput(session, "vbk", value = 0.374)
       updateNumericInput(session, "t0", value = 0.197)
@@ -246,6 +250,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.18)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (female maturity lower range, literature)
       updateNumericInput(session, "memorable_size", value = 635)  # 25 inches (Gabelhouse 1984)
+      updateNumericInput(session, "amax", value = 15)  # Typical maximum age for managed walleye populations
       updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
       updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
       updateNumericInput(session, "t0", value = -0.632)  # Craig et al. 1995
@@ -259,6 +264,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.15)
       updateNumericInput(session, "mat_size", value = 203)  # 8 inches (female maturity, literature)
       updateNumericInput(session, "memorable_size", value = 508)  # 20 inches (Gabelhouse 1984)
+      updateNumericInput(session, "amax", value = 12)  # Typical maximum age for largemouth bass
       updateNumericInput(session, "linf", value = 450)  # Average of male/female
       updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
       updateNumericInput(session, "t0", value = 0.04)
@@ -272,6 +278,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.08)
       updateNumericInput(session, "mat_size", value = 254)  # 10 inches (female first spawn lower range, literature)
       updateNumericInput(session, "memorable_size", value = 432)  # 17 inches (Gabelhouse 1984)
+      updateNumericInput(session, "amax", value = 12)  # Typical maximum age for smallmouth bass
       updateNumericInput(session, "linf", value = 420)
       updateNumericInput(session, "vbk", value = 0.25)
       updateNumericInput(session, "t0", value = -0.3)
@@ -286,6 +293,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.23)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (literature: female maturity)
       updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
+      updateNumericInput(session, "amax", value = 18)  # Typical maximum age for channel catfish
       updateNumericInput(session, "linf", value = 650)  # Moderate growth
       updateNumericInput(session, "vbk", value = 0.18)
       updateNumericInput(session, "t0", value = -1.2)
@@ -300,6 +308,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.11)
       updateNumericInput(session, "mat_size", value = 350)  # ~14 inches (female maturity lower range, literature: 35-50cm)
       updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
+      updateNumericInput(session, "amax", value = 25)  # Typical maximum age for blue catfish (long-lived species)
       updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
       updateNumericInput(session, "vbk", value = 0.15)
       updateNumericInput(session, "t0", value = -1.2)
@@ -475,7 +484,7 @@ server <- function(input, output, session) {
     withProgress(message = 'Running simulation...', value = 0, {
 
       growth_params <- get_growth_params()
-      Amax <- 8
+      Amax <- input$amax
       Ymax <- input$ymax
 
       alfa <- input$wl_a
@@ -1010,7 +1019,7 @@ server <- function(input, output, session) {
     withProgress(message = 'Generating yield curve...', value = 0, {
 
       growth_params <- get_growth_params()
-      Amax <- 8
+      Amax <- input$amax
       Ymax <- input$ymax
 
       # Weight-length equation (species-specific)
