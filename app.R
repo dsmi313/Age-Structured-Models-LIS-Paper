@@ -250,6 +250,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.18)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (female maturity lower range, literature)
       updateNumericInput(session, "memorable_size", value = 635)  # 25 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 356)  # 14 inches minimum harvest size
       updateNumericInput(session, "amax", value = 15)  # Typical maximum age for managed walleye populations
       updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
       updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
@@ -264,6 +265,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.15)
       updateNumericInput(session, "mat_size", value = 203)  # 8 inches (female maturity, literature)
       updateNumericInput(session, "memorable_size", value = 508)  # 20 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
       updateNumericInput(session, "amax", value = 12)  # Typical maximum age for largemouth bass
       updateNumericInput(session, "linf", value = 450)  # Average of male/female
       updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
@@ -278,6 +280,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.08)
       updateNumericInput(session, "mat_size", value = 254)  # 10 inches (female first spawn lower range, literature)
       updateNumericInput(session, "memorable_size", value = 432)  # 17 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
       updateNumericInput(session, "amax", value = 12)  # Typical maximum age for smallmouth bass
       updateNumericInput(session, "linf", value = 420)
       updateNumericInput(session, "vbk", value = 0.25)
@@ -293,6 +296,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.23)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (literature: female maturity)
       updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
       updateNumericInput(session, "amax", value = 24)  # Maximum recorded 40 years; using 24 as plus-group
       updateNumericInput(session, "linf", value = 650)  # Moderate growth
       updateNumericInput(session, "vbk", value = 0.18)
@@ -308,6 +312,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.11)
       updateNumericInput(session, "mat_size", value = 350)  # ~14 inches (female maturity lower range, literature: 35-50cm)
       updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
+      updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
       updateNumericInput(session, "amax", value = 30)  # Maximum recorded 40 years; using 30 as plus-group (long-lived species)
       updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
       updateNumericInput(session, "vbk", value = 0.15)
