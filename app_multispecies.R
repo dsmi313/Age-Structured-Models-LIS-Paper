@@ -19,8 +19,6 @@ ui <- fluidPage(
                               "Walleye" = "walleye",
                               "Largemouth Bass" = "lmb",
                               "Smallmouth Bass" = "smb",
-                              "Channel Catfish" = "channel_catfish",
-                              "Blue Catfish" = "blue_catfish",
                               "Custom" = "custom"),
                   selected = "crappie"),
 
@@ -181,8 +179,6 @@ ui <- fluidPage(
                    tags$li(strong("Walleye:"), "Standard walleye life history parameters"),
                    tags$li(strong("Largemouth Bass:"), "Typical warmwater bass parameters"),
                    tags$li(strong("Smallmouth Bass:"), "Smallmouth bass parameters"),
-                  tags$li(strong("Channel Catfish:"), "Parameters from FishBase/literature"),
-                  tags$li(strong("Blue Catfish:"), "Parameters from FishBase/literature"),
                    tags$li(strong("Custom:"), "Enter your own species-specific parameters")
                  ),
                  br(),
@@ -244,68 +240,40 @@ server <- function(input, output, session) {
       # Craig et al. 1995; Weight-length from North American data
       updateNumericInput(session, "wl_a", value = 3.52e-6)  # From log10(W) = -5.453 + 3.180*log10(L)
       updateNumericInput(session, "wl_b", value = 3.18)
-      updateNumericInput(session, "mat_size", value = 356)  # 14 inches (female maturity lower range, literature)
-      updateNumericInput(session, "memorable_size", value = 635)  # 25 inches (Gabelhouse 1984)
+      updateNumericInput(session, "mat_size", value = 380)  # ~15 inches
+      updateNumericInput(session, "memorable_size", value = 508)  # 20 inches
       updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
       updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
       updateNumericInput(session, "t0", value = -0.632)  # Craig et al. 1995
       updateNumericInput(session, "nat_mort", value = 0.215)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 1.1)  # Very high recruitment variability (literature: CV=112%)
+      updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
       showNotification("Loaded Walleye parameters (Craig et al. 1995)", type = "message")
 
     } else if (input$species == "lmb") {
       # Lake Trasimeno study; averaged male/female parameters
       updateNumericInput(session, "wl_a", value = 9.88e-6)  # From W=0.00988*L^3.15
       updateNumericInput(session, "wl_b", value = 3.15)
-      updateNumericInput(session, "mat_size", value = 203)  # 8 inches (female maturity, literature)
-      updateNumericInput(session, "memorable_size", value = 508)  # 20 inches (Gabelhouse 1984)
+      updateNumericInput(session, "mat_size", value = 250)  # ~10 inches
+      updateNumericInput(session, "memorable_size", value = 381)  # 15 inches
       updateNumericInput(session, "linf", value = 450)  # Average of male/female
       updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
       updateNumericInput(session, "t0", value = 0.04)
       updateNumericInput(session, "nat_mort", value = 0.35)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: CV>0.5)
+      updateNumericInput(session, "rec_cv", value = 0.45)  # Moderate recruitment variability
       showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
 
     } else if (input$species == "smb") {
       # Conservative estimates based on typical smallmouth bass populations
       updateNumericInput(session, "wl_a", value = 1.08e-5)
       updateNumericInput(session, "wl_b", value = 3.08)
-      updateNumericInput(session, "mat_size", value = 254)  # 10 inches (female first spawn lower range, literature)
-      updateNumericInput(session, "memorable_size", value = 432)  # 17 inches (Gabelhouse 1984)
+      updateNumericInput(session, "mat_size", value = 250)  # ~10 inches (literature: 8-12" typical)
+      updateNumericInput(session, "memorable_size", value = 356)  # 14 inches
       updateNumericInput(session, "linf", value = 420)
       updateNumericInput(session, "vbk", value = 0.25)
       updateNumericInput(session, "t0", value = -0.3)
       updateNumericInput(session, "nat_mort", value = 0.25)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.7)  # Moderate-high recruitment variability (literature: CV=52-80%)
-      showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
-
-    } else if (input$species == "channel_catfish") {
-      # Channel catfish parameters (FishBase/literature/Gabelhouse 1984)
-      # W-L from NLLS: W(g) = 0.00522 * L(cm)^3.2293, converted to kg and mm
-      updateNumericInput(session, "wl_a", value = 3.08e-9)
-      updateNumericInput(session, "wl_b", value = 3.23)
-      updateNumericInput(session, "mat_size", value = 356)  # 14 inches (literature: female maturity)
-      updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
-      updateNumericInput(session, "linf", value = 650)  # Moderate growth
-      updateNumericInput(session, "vbk", value = 0.18)
-      updateNumericInput(session, "t0", value = -1.2)
-      updateNumericInput(session, "nat_mort", value = 0.18)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
-      showNotification("Loaded Channel Catfish parameters (literature/Gabelhouse 1984)", type = "message")
-
-    } else if (input$species == "blue_catfish") {
-      # Blue catfish parameters (FishBase/literature/Gabelhouse 1984)
-      # W-L from FishBase Bayesian: W(g) = 0.00525 * L(cm)^3.11, converted to kg and mm
-      updateNumericInput(session, "wl_a", value = 4.08e-9)
-      updateNumericInput(session, "wl_b", value = 3.11)
-      updateNumericInput(session, "mat_size", value = 350)  # ~14 inches (female maturity lower range, literature: 35-50cm)
-      updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
-      updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
-      updateNumericInput(session, "vbk", value = 0.15)
-      updateNumericInput(session, "t0", value = -1.2)
-      updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: σR=0.49, Hilling et al. 2025)
-      showNotification("Loaded Blue Catfish parameters (literature/Gabelhouse 1984)", type = "message")
+      showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
     }
     # If custom, don't update anything
   })
@@ -423,44 +391,6 @@ server <- function(input, output, session) {
         updateNumericInput(session, "nat_mort", value = 0.35)  # M = K
       }
     }
-    # Channel Catfish growth parameters (literature-based estimates)
-    else if (input$species == "channel_catfish") {
-      if (input$growth_preset == "slow") {
-        updateNumericInput(session, "linf", value = 600)  # Slower growing populations
-        updateNumericInput(session, "vbk", value = 0.12)
-        updateNumericInput(session, "t0", value = -1.0)
-        updateNumericInput(session, "nat_mort", value = 0.12)  # M = K
-      } else if (input$growth_preset == "moderate") {
-        updateNumericInput(session, "linf", value = 650)  # Typical growth
-        updateNumericInput(session, "vbk", value = 0.18)
-        updateNumericInput(session, "t0", value = -1.2)
-        updateNumericInput(session, "nat_mort", value = 0.18)  # M = K
-      } else if (input$growth_preset == "fast") {
-        updateNumericInput(session, "linf", value = 700)  # Fast growing populations
-        updateNumericInput(session, "vbk", value = 0.24)
-        updateNumericInput(session, "t0", value = -1.5)
-        updateNumericInput(session, "nat_mort", value = 0.24)  # M = K
-      }
-    }
-    # Blue Catfish growth parameters (literature-based estimates, larger species)
-    else if (input$species == "blue_catfish") {
-      if (input$growth_preset == "slow") {
-        updateNumericInput(session, "linf", value = 800)  # Slower growing populations
-        updateNumericInput(session, "vbk", value = 0.10)
-        updateNumericInput(session, "t0", value = -1.0)
-        updateNumericInput(session, "nat_mort", value = 0.10)  # M = K
-      } else if (input$growth_preset == "moderate") {
-        updateNumericInput(session, "linf", value = 900)  # Typical growth
-        updateNumericInput(session, "vbk", value = 0.15)
-        updateNumericInput(session, "t0", value = -1.2)
-        updateNumericInput(session, "nat_mort", value = 0.15)  # M = K
-      } else if (input$growth_preset == "fast") {
-        updateNumericInput(session, "linf", value = 1000)  # Fast growing populations
-        updateNumericInput(session, "vbk", value = 0.20)
-        updateNumericInput(session, "t0", value = -1.5)
-        updateNumericInput(session, "nat_mort", value = 0.20)  # M = K
-      }
-    }
     # If "custom" is selected, don't update anything - user will enter their own values
   })
 
@@ -510,11 +440,8 @@ server <- function(input, output, session) {
         Prop = rep(NA, nsim)
       )
 
-      # Store ALL time series data from all simulations
-      all_YPR <- matrix(NA, Ymax, nsim)
-      all_SPR <- matrix(NA, Ymax, nsim)
-      all_Prop <- matrix(NA, Ymax, nsim)
-      all_Abundance <- matrix(NA, Amax, nsim)  # Store population structure from all sims
+      # Store one representative time series
+      store_timeseries <- TRUE
 
       for(k in 1:nsim) {
 
@@ -533,17 +460,14 @@ server <- function(input, output, session) {
         N[1, 1] <- 10000
         N[1, ] <- Ro * S
 
-        # Convert CV to lognormal sigma: σ = sqrt(log(CV² + 1))
-        sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = input$rec_cv)
 
         U <- input$exploitation
+        Uo <- input$exploitation + 0.1
 
         TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
         Wt <- (alfa * TL^bet) / 1000
-        # Fecundity with logistic maturity ogive (smoother than linear threshold)
-        maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-        Fec <- Wt * maturity_ogive
+        Fec <- pmax(Wt - Wmat, 0)
 
         Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
 
@@ -578,10 +502,8 @@ server <- function(input, output, session) {
           for(j in 2:Amax) {
             trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
 
-            # Fishing mortality = harvest mortality + release mortality
-            # Release mortality applies to fish caught but not harvested
             N[i, j] <- N[i-1, j-1] * So *
-              (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
+              (1 - (Vulcap[j-1] * Uo - Vulharv[j-1] * U) * DisMort) *
               (1 - Vulharv[j-1] * U)
 
             Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
@@ -601,48 +523,31 @@ server <- function(input, output, session) {
         Propout <- Prop[50:Ymax]
         results$Prop[k] <- mean(Propout, na.rm = TRUE)
 
-        # Store time series from this simulation
-        all_YPR[, k] <- YPR
-        all_SPR[, k] <- SPRt
-        all_Prop[, k] <- Prop
+        # Store one representative time series
+        if(store_timeseries && k == 1) {
+          ts_data <- data.frame(
+            Year = 1:Ymax,
+            YPR = YPR,
+            SPR = SPRt,
+            Prop = Prop,
+            TotalN = rowSums(N, na.rm = TRUE)
+          )
+          time_series_data(ts_data)
 
-        # Store final year abundance from this simulation
-        all_Abundance[, k] <- N[Ymax, ]
+          # Store population structure
+          pop_data <- data.frame(
+            Age = Age,
+            Length = TL,
+            Weight = Wt,
+            Abundance = N[Ymax, ],
+            VulCapture = Vulcap,
+            VulHarvest = Vulharv
+          )
+          pop_structure_data(pop_data)
+
+          store_timeseries <- FALSE
+        }
       }
-
-      # Calculate mean and SD across all simulations at each year
-      ts_data <- data.frame(
-        Year = 1:Ymax,
-        YPR_mean = rowMeans(all_YPR, na.rm = TRUE),
-        YPR_sd = apply(all_YPR, 1, sd, na.rm = TRUE),
-        SPR_mean = rowMeans(all_SPR, na.rm = TRUE),
-        SPR_sd = apply(all_SPR, 1, sd, na.rm = TRUE),
-        Prop_mean = rowMeans(all_Prop, na.rm = TRUE),
-        Prop_sd = apply(all_Prop, 1, sd, na.rm = TRUE)
-      )
-
-      # Calculate 95% prediction intervals: mean ± 1.96 × SD
-      ts_data$YPR_lower <- ts_data$YPR_mean - 1.96 * ts_data$YPR_sd
-      ts_data$YPR_upper <- ts_data$YPR_mean + 1.96 * ts_data$YPR_sd
-      ts_data$SPR_lower <- ts_data$SPR_mean - 1.96 * ts_data$SPR_sd
-      ts_data$SPR_upper <- ts_data$SPR_mean + 1.96 * ts_data$SPR_sd
-      ts_data$Prop_lower <- ts_data$Prop_mean - 1.96 * ts_data$Prop_sd
-      ts_data$Prop_upper <- ts_data$Prop_mean + 1.96 * ts_data$Prop_sd
-
-      time_series_data(ts_data)
-
-      # Calculate median and quantiles for population structure across all simulations
-      pop_data <- data.frame(
-        Age = Age,
-        Length = TL,
-        Weight = Wt,
-        Abundance_median = apply(all_Abundance, 1, median, na.rm = TRUE),
-        Abundance_q25 = apply(all_Abundance, 1, quantile, probs = 0.25, na.rm = TRUE),
-        Abundance_q75 = apply(all_Abundance, 1, quantile, probs = 0.75, na.rm = TRUE),
-        VulCapture = Vulcap,
-        VulHarvest = Vulharv
-      )
-      pop_structure_data(pop_data)
 
       sim_results(results)
     })
@@ -686,16 +591,6 @@ server <- function(input, output, session) {
     cat(sprintf("  SPR:              %.4f ± %.4f\n",
                 mean(results$SPR, na.rm = TRUE),
                 sd(results$SPR, na.rm = TRUE)))
-
-    # Management warning if SPR < 0.3
-    mean_spr <- mean(results$SPR, na.rm = TRUE)
-    if(mean_spr < 0.3) {
-      cat("\n")
-      cat("  ⚠️  WARNING: SPR < 0.3 (Overfishing threshold)\n")
-      cat("  Population may be experiencing recruitment overfishing.\n")
-      cat("  Consider reducing exploitation or implementing protective regulations.\n")
-    }
-
     cat(sprintf("  Prop Memorable:   %.4f ± %.4f\n",
                 mean(results$Prop, na.rm = TRUE),
                 sd(results$Prop, na.rm = TRUE)))
@@ -760,51 +655,19 @@ server <- function(input, output, session) {
     req(time_series_data())
     ts_data <- time_series_data()
 
-    # Create separate plots for each metric with ribbons
-    p1 <- ggplot(ts_data, aes(x = Year, y = YPR_mean)) +
-      geom_ribbon(aes(ymin = YPR_lower, ymax = YPR_upper),
-                  alpha = 0.2, fill = "steelblue") +
-      geom_line(color = "steelblue", size = 1) +
-      labs(title = "YPR Over Time (Mean ± 95% Prediction Interval)",
-           x = "", y = "YPR (kg)") +
-      theme_minimal()
+    ts_long <- ts_data %>%
+      select(Year, YPR, SPR, Prop) %>%
+      pivot_longer(-Year, names_to = "Metric", values_to = "Value")
 
-    p2 <- ggplot(ts_data, aes(x = Year, y = SPR_mean)) +
-      geom_ribbon(aes(ymin = SPR_lower, ymax = SPR_upper),
-                  alpha = 0.2, fill = "darkgreen") +
-      geom_line(color = "darkgreen", size = 1) +
-      geom_hline(yintercept = 0.40, linetype = "dashed", color = "orange", alpha = 0.7) +
-      geom_hline(yintercept = 0.30, linetype = "dashed", color = "red", alpha = 0.7) +
-      labs(title = "SPR Over Time (Mean ± 95% Prediction Interval)",
-           subtitle = "Dashed lines: 40% (sustainable), 30% (overfished)",
-           x = "", y = "SPR") +
-      theme_minimal()
+    p <- ggplot(ts_long, aes(x = Year, y = Value, color = Metric)) +
+      geom_line(size = 0.8) +
+      facet_wrap(~ Metric, scales = "free_y", ncol = 1) +
+      labs(title = "Population Metrics Over Time (Representative Simulation)",
+           x = "Year", y = "Value") +
+      theme_minimal() +
+      theme(legend.position = "none")
 
-    memorable_inches <- round(input$memorable_size / 25.4, 1)
-    p3 <- ggplot(ts_data, aes(x = Year, y = Prop_mean)) +
-      geom_ribbon(aes(ymin = Prop_lower, ymax = Prop_upper),
-                  alpha = 0.2, fill = "darkorange") +
-      geom_line(color = "darkorange", size = 1) +
-      labs(title = paste0("Proportion Memorable (≥", memorable_inches, "\") Over Time"),
-           subtitle = "Mean ± 95% prediction interval",
-           x = "Year", y = "Proportion") +
-      theme_minimal()
-
-    # Combine plots vertically
-    subplot(
-      ggplotly(p1),
-      ggplotly(p2),
-      ggplotly(p3),
-      nrows = 3,
-      shareX = TRUE,
-      titleY = TRUE
-    ) %>%
-      layout(title = list(
-        text = paste0("Population Metrics Over Time<br>",
-                     "<sup>Mean across ", input$nsim, " simulations with 95% prediction intervals</sup>"),
-        x = 0.5,
-        xanchor = "center"
-      ))
+    ggplotly(p)
   })
 
   # Population structure plot
@@ -813,13 +676,10 @@ server <- function(input, output, session) {
     pop_data <- pop_structure_data()
 
     p <- ggplot(pop_data, aes(x = Age)) +
-      geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
-                  fill = "steelblue", alpha = 0.3) +
-      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.5) +
-      geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
-      geom_point(aes(y = Abundance_median), color = "darkblue", size = 3) +
-      labs(title = "Population Structure by Age (Median across simulations)",
-           subtitle = "Shaded area shows 25th-75th percentile range",
+      geom_col(aes(y = Abundance), fill = "steelblue", alpha = 0.7) +
+      geom_line(aes(y = Abundance), color = "darkblue", size = 1) +
+      geom_point(aes(y = Abundance), color = "darkblue", size = 3) +
+      labs(title = "Population Structure by Age (Final Year)",
            x = "Age", y = "Abundance") +
       theme_minimal()
 
@@ -1082,17 +942,14 @@ server <- function(input, output, session) {
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
 
-          # Convert CV to lognormal sigma: σ = sqrt(log(CV² + 1))
-          sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = input$rec_cv)
 
           U <- U_test
+          Uo <- U_test + 0.1
 
           TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
           Wt <- (alfa * TL^bet) / 1000
-          # Fecundity with logistic maturity ogive (smoother than linear threshold)
-          maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-          Fec <- Wt * maturity_ogive
+          Fec <- pmax(Wt - Wmat, 0)
 
           Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
 
@@ -1127,10 +984,8 @@ server <- function(input, output, session) {
             for(j in 2:Amax) {
               trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
 
-              # Fishing mortality = harvest mortality + release mortality
-              # Release mortality applies to fish caught but not harvested
               N[i, j] <- N[i-1, j-1] * So *
-                (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
+                (1 - (Vulcap[j-1] * Uo - Vulharv[j-1] * U) * DisMort) *
                 (1 - Vulharv[j-1] * U)
 
               YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
