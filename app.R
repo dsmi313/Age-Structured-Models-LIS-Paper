@@ -81,6 +81,14 @@ ui <- fluidPage(
         helpText(tags$small(tags$em("Traditional: harvest ONLY between min-max. Protective: PROTECT between min-max")))
       ),
 
+      checkboxInput("enable_max_limit", "Enable Maximum Length Limit", value = FALSE),
+      conditionalPanel(
+        condition = "input.enable_max_limit == true",
+        numericInput("max_harvest_size", "Maximum Harvest Size (mm):",
+                     value = 500, min = 300, max = 800),
+        helpText(tags$small(tags$em("Protects all fish above this size (reverse minimum size limit)")))
+      ),
+
       # Mortality Parameters
       h4("Mortality"),
       helpText(tags$small(tags$em("Proportion of released fish that die"))),
@@ -132,7 +140,20 @@ ui <- fluidPage(
 
         tabPanel("Population Structure",
                  br(),
+                 h4("Equilibrium Population Structure"),
+                 helpText("This plot shows the expected age distribution at equilibrium (final year of simulation).",
+                          tags$br(),
+                          "The model starts with 10,000 recruits (age-1), but recruitment varies stochastically in subsequent years based on the Recruitment CV parameter.",
+                          tags$br(),
+                          "The shaded area shows variation across simulations due to stochastic recruitment."),
                  plotlyOutput("pop_structure", height = "500px"),
+                 br(),
+                 h4("Length-Frequency Distribution"),
+                 helpText("Histogram showing the distribution of fish lengths in the equilibrium population."),
+                 plotlyOutput("length_frequency", height = "400px"),
+                 br(),
+                 h4("Vulnerability by Length"),
+                 helpText("Blue curve: probability a fish is caught (capture vulnerability). Red curve: probability a caught fish is legally harvestable."),
                  plotlyOutput("vulnerability_plot", height = "400px")
         ),
 
@@ -197,8 +218,10 @@ ui <- fluidPage(
                    tags$li("Customizable weight-length relationships"),
                    tags$li("Size-dependent vulnerability to capture and harvest"),
                    tags$li("Traditional and protective slot limit options"),
+                   tags$li("Maximum length limit option (protects trophy fish)"),
                    tags$li("Natural mortality and discard mortality"),
-                   tags$li("Stochastic recruitment (lognormal, species-specific CV)")
+                   tags$li("Stochastic recruitment (lognormal, species-specific CV)"),
+                   tags$li(strong("Fecundity:"), "Weight-at-age is used as a surrogate for egg production, scaled by a logistic maturity ogive. This approach assumes fecundity is proportional to body weight for mature fish, with maturity determined by the Maturity Size parameter.")
                  ),
                  br(),
                  h4("Outputs"),
@@ -587,6 +610,16 @@ server <- function(input, output, session) {
           Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
         }
 
+        # Apply maximum length limit if enabled (protects large fish)
+        if(input$enable_max_limit) {
+          Max_harvest_size <- input$max_harvest_size
+          Max_harvestSD <- 0.01  # Sharp cutoff
+          # Logistic for maximum size (vulnerable below max)
+          Vulharv_below_max_limit <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+          # Apply max limit: fish above max size are protected (vulnerability = 0)
+          Vulharv <- Vulharv * Vulharv_below_max_limit
+        }
+
         for(i in 2:Ymax) {
           N[i, 1] <- Rcapacity[i - 1]
           for(j in 2:Amax) {
@@ -599,7 +632,8 @@ server <- function(input, output, session) {
               (1 - Vulharv[j-1] * U)
 
             Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
-            SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
+            # SPR: spawning output per recruit (fished / unfished)
+            SPRt[i] <- (sum(N[i, ] * Fec) / N[i, 1]) / (sum(N[1, ] * Fec) / N[1, 1])
             YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
             Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
           }
@@ -856,6 +890,23 @@ server <- function(input, output, session) {
            color = "Type") +
       scale_color_manual(values = c("VulCapture" = "blue", "VulHarvest" = "red"),
                          labels = c("Capture", "Harvest")) +
+      theme_minimal()
+
+    ggplotly(p)
+  })
+
+  # Length-frequency histogram
+  output$length_frequency <- renderPlotly({
+    req(pop_structure_data())
+    pop_data <- pop_structure_data()
+
+    # Create weighted histogram data
+    # For each age class, we have abundance and length
+    # We'll create a histogram showing the distribution of lengths weighted by abundance
+    p <- ggplot(pop_data, aes(x = Length, y = Abundance_median)) +
+      geom_col(fill = "steelblue", alpha = 0.7, color = "black") +
+      labs(title = "Length-Frequency Distribution (Equilibrium)",
+           x = "Total Length (mm)", y = "Abundance") +
       theme_minimal()
 
     ggplotly(p)
@@ -1136,6 +1187,16 @@ server <- function(input, output, session) {
             Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
           }
 
+          # Apply maximum length limit if enabled (protects large fish)
+          if(input$enable_max_limit) {
+            Max_harvest_size <- input$max_harvest_size
+            Max_harvestSD <- 0.01  # Sharp cutoff
+            # Logistic for maximum size (vulnerable below max)
+            Vulharv_below_max_limit <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+            # Apply max limit: fish above max size are protected (vulnerability = 0)
+            Vulharv <- Vulharv * Vulharv_below_max_limit
+          }
+
           for(i in 2:Ymax) {
             N[i, 1] <- Rcapacity[i - 1]
             for(j in 2:Amax) {
@@ -1148,7 +1209,8 @@ server <- function(input, output, session) {
                 (1 - Vulharv[j-1] * U)
 
               YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-              SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
+              # SPR: spawning output per recruit (fished / unfished)
+              SPRt[i] <- (sum(N[i, ] * Fec) / N[i, 1]) / (sum(N[1, ] * Fec) / N[1, 1])
               Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
             }
           }
