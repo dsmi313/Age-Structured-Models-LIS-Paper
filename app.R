@@ -586,6 +586,12 @@ server <- function(input, output, session) {
         Vulharv <- Vulharv * Vulharv_below_max_limit
       }
 
+      # Pre-compute mortality vector for age progression (vectorized)
+      mort_vec <- So * (1 - (Vulcap - Vulharv) * U * DisMort) * (1 - Vulharv * U)
+
+      # Pre-compute trophy vulnerability for all ages
+      trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+
       # Convert CV to lognormal sigma (used in each simulation)
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
       U <- input$exploitation
@@ -623,22 +629,19 @@ server <- function(input, output, session) {
         # Generate stochastic recruitment for this simulation
         Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
 
+        # Vectorized age progression loop
         for(i in 2:Ymax) {
+          # Set recruitment for this year
           N[i, 1] <- Rcapacity[i - 1]
-          for(j in 2:Amax) {
-            trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
 
-            # Fishing mortality = harvest mortality + release mortality
-            # Release mortality applies to fish caught but not harvested
-            N[i, j] <- N[i-1, j-1] * So *
-              (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
-              (1 - Vulharv[j-1] * U)
+          # Vectorized age progression: all ages advance in one operation
+          N[i, 2:Amax] <- N[i-1, 1:(Amax-1)] * mort_vec[1:(Amax-1)]
 
-            Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
-            SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
-            YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-            Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
-          }
+          # Calculate annual metrics (after all ages are updated)
+          Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
+          SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
+          YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
+          Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
         }
 
         # Store results (last 50 years)
@@ -1173,6 +1176,9 @@ server <- function(input, output, session) {
       # Convert CV to lognormal sigma (used in each simulation)
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
 
+      # Pre-compute trophy vulnerability for all ages
+      trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.05)
       nsim <- input$yield_curve_nsim
@@ -1183,6 +1189,10 @@ server <- function(input, output, session) {
         incProgress(1/length(U_values), detail = paste("U =", round(U_values[u_idx], 2)))
 
         U_test <- U_values[u_idx]
+
+        # Pre-compute mortality vector for this exploitation rate (vectorized)
+        mort_vec <- So * (1 - (Vulcap - Vulharv) * U_test * DisMort) * (1 - Vulharv * U_test)
+
         ypr_vals <- numeric(nsim)
         spr_vals <- numeric(nsim)
         prop_vals <- numeric(nsim)
@@ -1204,21 +1214,18 @@ server <- function(input, output, session) {
           # Use the test exploitation rate for this curve point
           U <- U_test
 
+          # Vectorized age progression loop
           for(i in 2:Ymax) {
+            # Set recruitment for this year
             N[i, 1] <- Rcapacity[i - 1]
-            for(j in 2:Amax) {
-              trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
 
-              # Fishing mortality = harvest mortality + release mortality
-              # Release mortality applies to fish caught but not harvested
-              N[i, j] <- N[i-1, j-1] * So *
-                (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
-                (1 - Vulharv[j-1] * U)
+            # Vectorized age progression: all ages advance in one operation
+            N[i, 2:Amax] <- N[i-1, 1:(Amax-1)] * mort_vec[1:(Amax-1)]
 
-              YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-              SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
-              Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
-            }
+            # Calculate annual metrics (after all ages are updated)
+            YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
+            SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
+            Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
           }
 
           ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
