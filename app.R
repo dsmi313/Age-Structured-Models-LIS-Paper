@@ -570,8 +570,12 @@ server <- function(input, output, session) {
         Slot_upperSD <- 0.01
         HarvlimSD_slot <- 0.01
 
-        # Logistic for minimum size (vulnerable above min)
-        Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
+        # Effective minimum is the LARGER of Harvlim or Capsize
+        # (can't harvest what you can't catch!)
+        Effective_min <- max(Harvlim, Capsize)
+
+        # Logistic for minimum size (vulnerable above effective min)
+        Vulharv_above_min <- 1 / (1 + exp(-(TL - Effective_min) / HarvlimSD_slot))
         # Logistic for maximum size (vulnerable below max)
         Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
 
