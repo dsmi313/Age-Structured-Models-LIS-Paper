@@ -1128,9 +1128,13 @@ server <- function(input, output, session) {
       Harvlim <- input$harvlim
       HarvlimSD <- Harvlim * 0.01
 
+      # ========================================================================
+      # OPTIMIZATION 1: Pre-compute ALL age-invariant calculations ONCE
+      # (These don't depend on U or simulation index k)
+      # ========================================================================
+
       Age <- seq(1, Amax)
 
-      # Pre-compute age-specific variables (deterministic, same across all simulations)
       # Natural survival
       S <- exp(-Nat_mort)^(Age - 1)
       So <- exp(-Nat_mort)
@@ -1140,7 +1144,7 @@ server <- function(input, output, session) {
       Wt <- (alfa * TL^bet) / 1000
 
       # Fecundity with logistic maturity ogive
-      Wmat <- (alfa * input$mat_size^bet) / 1000  # Use mean maturity size
+      Wmat <- (alfa * input$mat_size^bet) / 1000
       maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
       Fec <- Wt * maturity_ogive
 
@@ -1153,24 +1157,19 @@ server <- function(input, output, session) {
         Slot_upperSD <- 0.01
         HarvlimSD_slot <- 0.01
 
-        # Logistic for minimum size (vulnerable above min)
         Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
-        # Logistic for maximum size (vulnerable below max)
         Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
 
         if(input$slot_type == "traditional") {
-          # Traditional slot: harvest ONLY within slot (min to max)
           Vulharv <- Vulharv_above_min * Vulharv_below_max
         } else {
-          # Protective slot: PROTECT within slot (min to max)
           Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
         }
       } else {
-        # Standard minimum length limit only
         Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
       }
 
-      # Apply maximum length limit if enabled (protects large fish)
+      # Apply maximum length limit if enabled
       if(input$enable_max_limit) {
         Max_harvest_size <- input$max_harvest_size
         Max_harvestSD <- 0.01
@@ -1178,16 +1177,32 @@ server <- function(input, output, session) {
         Vulharv <- Vulharv * Vulharv_below_max_limit
       }
 
-      # Convert CV to lognormal sigma (used in each simulation)
+      # Trophy vulnerability
+      trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+
+      # SPR denominator (unfished spawning potential per recruit)
+      SPR_denom <- sum((Ro * S) * Fec)
+
+      # Pre-compute weight-harvest product (used in YPR calculation)
+      Wt_harvest <- Wt * Vulharv
+
+      # Convert CV to lognormal sigma
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
 
-      # Pre-compute trophy vulnerability for all ages
-      trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+      # ========================================================================
+      # OPTIMIZATION 2: Pre-generate ALL recruitment draws at once
+      # ========================================================================
+
+      nsim <- input$yield_curve_nsim
+      # Generate all recruitment values: Ymax rows x nsim columns
+      Rmat <- matrix(
+        Ro * rlnorm(Ymax * nsim, 0, sd = sigmaR),
+        nrow = Ymax,
+        ncol = nsim
+      )
 
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.05)
-      nsim <- input$yield_curve_nsim
-
       curve_results <- data.frame()
 
       for(u_idx in seq_along(U_values)) {
@@ -1195,8 +1210,13 @@ server <- function(input, output, session) {
 
         U_test <- U_values[u_idx]
 
-        # Pre-compute mortality vector for this exploitation rate (vectorized)
+        # Pre-compute mortality vector for this exploitation rate
         mort_vec <- So * (1 - (Vulcap - Vulharv) * U_test * DisMort) * (1 - Vulharv * U_test)
+
+        # ========================================================================
+        # OPTIMIZATION 3: Pre-create mortality matrix (avoid repeated indexing)
+        # ========================================================================
+        mort_mat <- matrix(mort_vec[1:(Amax-1)], nrow = Ymax, ncol = Amax - 1, byrow = TRUE)
 
         ypr_vals <- numeric(nsim)
         spr_vals <- numeric(nsim)
@@ -1213,27 +1233,29 @@ server <- function(input, output, session) {
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
 
-          # Pre-compute SPR denominator (unfished spawning potential)
-          SPR_denom <- sum(N[1, ] * Fec)
-
-          # Generate stochastic recruitment for this simulation
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
-
-          # Use the test exploitation rate for this curve point
-          U <- U_test
+          # Use pre-generated recruitment for this simulation
+          Rcapacity <- Rmat[, k]
 
           # Vectorized age progression loop
           for(i in 2:Ymax) {
             # Set recruitment for this year
             N[i, 1] <- Rcapacity[i - 1]
 
-            # Vectorized age progression: all ages advance in one operation
-            N[i, 2:Amax] <- N[i-1, 1:(Amax-1)] * mort_vec[1:(Amax-1)]
+            # Vectorized age progression with pre-computed mortality matrix
+            N[i, 2:Amax] <- N[i-1, 1:(Amax-1)] * mort_mat[i, ]
 
-            # Calculate annual metrics (after all ages are updated)
-            YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-            SPRt[i] <- sum(N[i, ] * Fec) / SPR_denom
-            Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
+            # ========================================================================
+            # OPTIMIZATION 4: Minimize repeated sum() calls - cache intermediate results
+            # ========================================================================
+            N_i <- N[i, ]  # Local copy is much faster
+
+            harvest_weight <- sum(Wt_harvest * N_i)
+            fecundity_now <- sum(Fec * N_i)
+            abundance_now <- sum(N_i)
+
+            YPR[i] <- (harvest_weight * U_test) / N_i[1]
+            SPRt[i] <- fecundity_now / SPR_denom
+            Prop[i] <- sum(trophyvul * N_i) / abundance_now
           }
 
           ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
