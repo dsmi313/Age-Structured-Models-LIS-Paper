@@ -66,6 +66,11 @@ ui <- fluidPage(
       helpText(tags$small(tags$em("Size at which fish become vulnerable to gear and regulations"))),
       numericInput("capsize", "Length at 50% Capture (mm):",
                    value = 204, min = 100, max = 300),
+
+      # Regulation type: mutually exclusive options
+      h4("Length Regulations (choose one)"),
+      helpText(tags$small(tags$em("Select either standard minimum, slot limit, OR maximum limit - not multiple"))),
+
       numericInput("harvlim", "Minimum Harvest Size (mm):",
                    value = 254, min = 150, max = 450),
 
@@ -81,12 +86,15 @@ ui <- fluidPage(
         helpText(tags$small(tags$em("Traditional: harvest ONLY between min-max. Protective: PROTECT between min-max")))
       ),
 
-      checkboxInput("enable_max_limit", "Enable Maximum Length Limit", value = FALSE),
       conditionalPanel(
-        condition = "input.enable_max_limit == true",
-        numericInput("max_harvest_size", "Maximum Harvest Size (mm):",
-                     value = 500, min = 300, max = 800),
-        helpText(tags$small(tags$em("Protects all fish above this size (reverse minimum size limit)")))
+        condition = "input.enable_slot == false",
+        checkboxInput("enable_max_limit", "Enable Maximum Length Limit", value = FALSE),
+        conditionalPanel(
+          condition = "input.enable_max_limit == true && input.enable_slot == false",
+          numericInput("max_harvest_size", "Maximum Harvest Size (mm):",
+                       value = 500, min = 300, max = 800),
+          helpText(tags$small(tags$em("Protects all fish above this size. Minimum Harvest Size is ignored when this is enabled.")))
+        )
       ),
 
       # Mortality Parameters
@@ -555,8 +563,9 @@ server <- function(input, output, session) {
       # Capture vulnerability
       Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
 
-      # Harvest vulnerability (depends on regulation type)
+      # Harvest vulnerability (depends on regulation type - mutually exclusive)
       if(input$enable_slot) {
+        # SLOT LIMIT: harvest or protect within a size range
         Slot_upper <- input$slot_upper
         Slot_upperSD <- 0.01
         HarvlimSD_slot <- 0.01
@@ -573,17 +582,15 @@ server <- function(input, output, session) {
           # Protective slot: PROTECT within slot (min to max)
           Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
         }
-      } else {
-        # Standard minimum length limit only
-        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
-      }
-
-      # Apply maximum length limit if enabled (protects large fish)
-      if(input$enable_max_limit) {
+      } else if(input$enable_max_limit) {
+        # MAXIMUM LENGTH LIMIT: protect all fish above max size (NO minimum)
+        # All fish below max size are harvestable (ignores Minimum Harvest Size)
         Max_harvest_size <- input$max_harvest_size
         Max_harvestSD <- 0.01
-        Vulharv_below_max_limit <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
-        Vulharv <- Vulharv * Vulharv_below_max_limit
+        Vulharv <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+      } else {
+        # STANDARD MINIMUM LENGTH LIMIT: protect fish below minimum size
+        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
       }
 
       # Get exploitation rate
@@ -1151,8 +1158,9 @@ server <- function(input, output, session) {
       # Capture vulnerability
       Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
 
-      # Harvest vulnerability (depends on regulation type)
+      # Harvest vulnerability (depends on regulation type - mutually exclusive)
       if(input$enable_slot) {
+        # SLOT LIMIT: harvest or protect within a size range
         Slot_upper <- input$slot_upper
         Slot_upperSD <- 0.01
         HarvlimSD_slot <- 0.01
@@ -1165,16 +1173,15 @@ server <- function(input, output, session) {
         } else {
           Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
         }
-      } else {
-        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
-      }
-
-      # Apply maximum length limit if enabled
-      if(input$enable_max_limit) {
+      } else if(input$enable_max_limit) {
+        # MAXIMUM LENGTH LIMIT: protect all fish above max size (NO minimum)
+        # All fish below max size are harvestable (ignores Minimum Harvest Size)
         Max_harvest_size <- input$max_harvest_size
         Max_harvestSD <- 0.01
-        Vulharv_below_max_limit <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
-        Vulharv <- Vulharv * Vulharv_below_max_limit
+        Vulharv <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+      } else {
+        # STANDARD MINIMUM LENGTH LIMIT: protect fish below minimum size
+        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
       }
 
       # Trophy vulnerability
