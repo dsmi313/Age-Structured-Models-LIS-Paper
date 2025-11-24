@@ -227,7 +227,7 @@ ui <- fluidPage(
                  h4("Outputs"),
                  tags$ul(
                    tags$li(strong("YPR:"), "Yield Per Recruit (kg)"),
-                   tags$li(strong("SPR:"), "Spawning Potential Ratio (relative to unfished)"),
+                   tags$li(strong("SPR:"), "Spawning Potential Ratio (relative to unfished). Note: With stochastic recruitment, SPR can exceed 1.0 when consecutive years of high recruitment build up population abundance beyond the initial unfished state."),
                    tags$li(strong("Prop Memorable:"), "Proportion of trophy/quality fish")
                  ),
                  br(),
@@ -632,8 +632,7 @@ server <- function(input, output, session) {
               (1 - Vulharv[j-1] * U)
 
             Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
-            # SPR: spawning output per recruit (fished / unfished)
-            SPRt[i] <- (sum(N[i, ] * Fec) / N[i, 1]) / (sum(N[1, ] * Fec) / N[1, 1])
+            SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
             YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
             Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
           }
@@ -1209,8 +1208,7 @@ server <- function(input, output, session) {
                 (1 - Vulharv[j-1] * U)
 
               YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-              # SPR: spawning output per recruit (fished / unfished)
-              SPRt[i] <- (sum(N[i, ] * Fec) / N[i, 1]) / (sum(N[1, ] * Fec) / N[1, 1])
+              SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
               Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
             }
           }
