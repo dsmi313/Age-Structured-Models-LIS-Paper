@@ -93,7 +93,7 @@ ui <- fluidPage(
           condition = "input.enable_max_limit == true && input.enable_slot == false",
           numericInput("max_harvest_size", "Maximum Harvest Size (mm):",
                        value = 500, min = 300, max = 800),
-          helpText(tags$small(tags$em("Protects all fish above this size. Minimum Harvest Size is ignored when this is enabled.")))
+          helpText(tags$small(tags$em("Protects all fish above this size. Harvestable window: Capture Size to Maximum Size.")))
         )
       ),
 
@@ -583,11 +583,17 @@ server <- function(input, output, session) {
           Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
         }
       } else if(input$enable_max_limit) {
-        # MAXIMUM LENGTH LIMIT: protect all fish above max size (NO minimum)
-        # All fish below max size are harvestable (ignores Minimum Harvest Size)
+        # MAXIMUM LENGTH LIMIT: protect all fish above max size
+        # Minimum is automatically set to capture size (can't harvest what you can't catch!)
         Max_harvest_size <- input$max_harvest_size
         Max_harvestSD <- 0.01
-        Vulharv <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+
+        # Use Capsize as the effective minimum (fish below capture size can't be harvested)
+        Vulharv_above_capture <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+        Vulharv_below_max <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+
+        # Harvest window: from capture size to max size
+        Vulharv <- Vulharv_above_capture * Vulharv_below_max
       } else {
         # STANDARD MINIMUM LENGTH LIMIT: protect fish below minimum size
         Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
@@ -1174,11 +1180,17 @@ server <- function(input, output, session) {
           Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
         }
       } else if(input$enable_max_limit) {
-        # MAXIMUM LENGTH LIMIT: protect all fish above max size (NO minimum)
-        # All fish below max size are harvestable (ignores Minimum Harvest Size)
+        # MAXIMUM LENGTH LIMIT: protect all fish above max size
+        # Minimum is automatically set to capture size (can't harvest what you can't catch!)
         Max_harvest_size <- input$max_harvest_size
         Max_harvestSD <- 0.01
-        Vulharv <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+
+        # Use Capsize as the effective minimum (fish below capture size can't be harvested)
+        Vulharv_above_capture <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+        Vulharv_below_max <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+
+        # Harvest window: from capture size to max size
+        Vulharv <- Vulharv_above_capture * Vulharv_below_max
       } else {
         # STANDARD MINIMUM LENGTH LIMIT: protect fish below minimum size
         Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
