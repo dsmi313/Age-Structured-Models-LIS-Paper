@@ -586,6 +586,9 @@ server <- function(input, output, session) {
         Vulharv <- Vulharv * Vulharv_below_max_limit
       }
 
+      # Get exploitation rate
+      U <- input$exploitation
+
       # Pre-compute mortality vector for age progression (vectorized)
       mort_vec <- So * (1 - (Vulcap - Vulharv) * U * DisMort) * (1 - Vulharv * U)
 
@@ -594,7 +597,6 @@ server <- function(input, output, session) {
 
       # Convert CV to lognormal sigma (used in each simulation)
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-      U <- input$exploitation
 
       # Run simulations
       nsim <- input$nsim
@@ -626,6 +628,9 @@ server <- function(input, output, session) {
         N[1, 1] <- 10000
         N[1, ] <- Ro * S
 
+        # Pre-compute SPR denominator (unfished spawning potential)
+        SPR_denom <- sum(N[1, ] * Fec)
+
         # Generate stochastic recruitment for this simulation
         Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
 
@@ -639,7 +644,7 @@ server <- function(input, output, session) {
 
           # Calculate annual metrics (after all ages are updated)
           Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
-          SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
+          SPRt[i] <- sum(N[i, ] * Fec) / SPR_denom
           YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
           Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
         }
@@ -1208,6 +1213,9 @@ server <- function(input, output, session) {
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
 
+          # Pre-compute SPR denominator (unfished spawning potential)
+          SPR_denom <- sum(N[1, ] * Fec)
+
           # Generate stochastic recruitment for this simulation
           Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
 
@@ -1224,7 +1232,7 @@ server <- function(input, output, session) {
 
             # Calculate annual metrics (after all ages are updated)
             YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-            SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
+            SPRt[i] <- sum(N[i, ] * Fec) / SPR_denom
             Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
           }
 
