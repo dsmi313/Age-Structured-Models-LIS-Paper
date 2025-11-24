@@ -538,6 +538,58 @@ server <- function(input, output, session) {
 
       Age <- seq(1, Amax)
 
+      # Pre-compute age-specific variables (deterministic, same across all simulations)
+      # Natural survival
+      S <- exp(-Nat_mort)^(Age - 1)
+      So <- exp(-Nat_mort)
+
+      # Growth: length and weight at age
+      TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
+      Wt <- (alfa * TL^bet) / 1000
+
+      # Fecundity with logistic maturity ogive
+      Wmat <- (alfa * input$mat_size^bet) / 1000  # Use mean maturity size
+      maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
+      Fec <- Wt * maturity_ogive
+
+      # Capture vulnerability
+      Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+
+      # Harvest vulnerability (depends on regulation type)
+      if(input$enable_slot) {
+        Slot_upper <- input$slot_upper
+        Slot_upperSD <- 0.01
+        HarvlimSD_slot <- 0.01
+
+        # Logistic for minimum size (vulnerable above min)
+        Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
+        # Logistic for maximum size (vulnerable below max)
+        Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
+
+        if(input$slot_type == "traditional") {
+          # Traditional slot: harvest ONLY within slot (min to max)
+          Vulharv <- Vulharv_above_min * Vulharv_below_max
+        } else {
+          # Protective slot: PROTECT within slot (min to max)
+          Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
+        }
+      } else {
+        # Standard minimum length limit only
+        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+      }
+
+      # Apply maximum length limit if enabled (protects large fish)
+      if(input$enable_max_limit) {
+        Max_harvest_size <- input$max_harvest_size
+        Max_harvestSD <- 0.01
+        Vulharv_below_max_limit <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+        Vulharv <- Vulharv * Vulharv_below_max_limit
+      }
+
+      # Convert CV to lognormal sigma (used in each simulation)
+      sigmaR <- sqrt(log(input$rec_cv^2 + 1))
+      U <- input$exploitation
+
       # Run simulations
       nsim <- input$nsim
       results <- data.frame(
@@ -557,68 +609,19 @@ server <- function(input, output, session) {
 
         incProgress(1/nsim, detail = paste("Simulation", k, "of", nsim))
 
+        # Initialize matrices for this simulation
         N <- matrix(NA, Ymax, Amax)
-        Wmat <- (alfa * rnorm(1, input$mat_size, input$mat_size * 0.1)^bet) / 1000
         Yield <- rep(NA, Ymax)
         SPRt <- rep(NA, Ymax)
         YPR <- rep(NA, Ymax)
         Prop <- rep(NA, Ymax)
 
-        S <- exp(-Nat_mort)^(Age - 1)
-        So <- exp(-Nat_mort)
-
+        # Set initial population structure (unfished)
         N[1, 1] <- 10000
         N[1, ] <- Ro * S
 
-        # Convert CV to lognormal sigma: σ = sqrt(log(CV² + 1))
-        sigmaR <- sqrt(log(input$rec_cv^2 + 1))
+        # Generate stochastic recruitment for this simulation
         Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
-
-        U <- input$exploitation
-
-        TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
-        Wt <- (alfa * TL^bet) / 1000
-        # Fecundity with logistic maturity ogive (smoother than linear threshold)
-        maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-        Fec <- Wt * maturity_ogive
-
-        Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
-
-        # Calculate harvest vulnerability with or without slot limit
-        if(input$enable_slot) {
-          Slot_upper <- input$slot_upper
-          # Use extremely small SD for near-step-function slot boundaries
-          Slot_upperSD <- 0.01
-          HarvlimSD_slot <- 0.01
-
-          # Logistic for minimum size (vulnerable above min)
-          Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
-          # Logistic for maximum size (vulnerable below max)
-          Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
-
-          if(input$slot_type == "traditional") {
-            # Traditional slot: harvest ONLY within slot (min to max)
-            # Zero vulnerability outside slot
-            Vulharv <- Vulharv_above_min * Vulharv_below_max
-          } else {
-            # Protective slot: PROTECT within slot (min to max)
-            # Zero vulnerability within slot, full vulnerability outside
-            Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
-          }
-        } else {
-          # Standard minimum length limit only
-          Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
-        }
-
-        # Apply maximum length limit if enabled (protects large fish)
-        if(input$enable_max_limit) {
-          Max_harvest_size <- input$max_harvest_size
-          Max_harvestSD <- 0.01  # Sharp cutoff
-          # Logistic for maximum size (vulnerable below max)
-          Vulharv_below_max_limit <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
-          # Apply max limit: fish above max size are protected (vulnerability = 0)
-          Vulharv <- Vulharv * Vulharv_below_max_limit
-        }
 
         for(i in 2:Ymax) {
           N[i, 1] <- Rcapacity[i - 1]
@@ -1119,6 +1122,57 @@ server <- function(input, output, session) {
 
       Age <- seq(1, Amax)
 
+      # Pre-compute age-specific variables (deterministic, same across all simulations)
+      # Natural survival
+      S <- exp(-Nat_mort)^(Age - 1)
+      So <- exp(-Nat_mort)
+
+      # Growth: length and weight at age
+      TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
+      Wt <- (alfa * TL^bet) / 1000
+
+      # Fecundity with logistic maturity ogive
+      Wmat <- (alfa * input$mat_size^bet) / 1000  # Use mean maturity size
+      maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
+      Fec <- Wt * maturity_ogive
+
+      # Capture vulnerability
+      Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+
+      # Harvest vulnerability (depends on regulation type)
+      if(input$enable_slot) {
+        Slot_upper <- input$slot_upper
+        Slot_upperSD <- 0.01
+        HarvlimSD_slot <- 0.01
+
+        # Logistic for minimum size (vulnerable above min)
+        Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
+        # Logistic for maximum size (vulnerable below max)
+        Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
+
+        if(input$slot_type == "traditional") {
+          # Traditional slot: harvest ONLY within slot (min to max)
+          Vulharv <- Vulharv_above_min * Vulharv_below_max
+        } else {
+          # Protective slot: PROTECT within slot (min to max)
+          Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
+        }
+      } else {
+        # Standard minimum length limit only
+        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+      }
+
+      # Apply maximum length limit if enabled (protects large fish)
+      if(input$enable_max_limit) {
+        Max_harvest_size <- input$max_harvest_size
+        Max_harvestSD <- 0.01
+        Vulharv_below_max_limit <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+        Vulharv <- Vulharv * Vulharv_below_max_limit
+      }
+
+      # Convert CV to lognormal sigma (used in each simulation)
+      sigmaR <- sqrt(log(input$rec_cv^2 + 1))
+
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.05)
       nsim <- input$yield_curve_nsim
@@ -1134,67 +1188,21 @@ server <- function(input, output, session) {
         prop_vals <- numeric(nsim)
 
         for(k in 1:nsim) {
+          # Initialize matrices for this simulation
           N <- matrix(NA, Ymax, Amax)
-          Wmat <- (alfa * rnorm(1, input$mat_size, input$mat_size * 0.1)^bet) / 1000
           YPR <- rep(NA, Ymax)
           SPRt <- rep(NA, Ymax)
           Prop <- rep(NA, Ymax)
 
-          S <- exp(-Nat_mort)^(Age - 1)
-          So <- exp(-Nat_mort)
-
+          # Set initial population structure (unfished)
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
 
-          # Convert CV to lognormal sigma: σ = sqrt(log(CV² + 1))
-          sigmaR <- sqrt(log(input$rec_cv^2 + 1))
+          # Generate stochastic recruitment for this simulation
           Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
 
+          # Use the test exploitation rate for this curve point
           U <- U_test
-
-          TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
-          Wt <- (alfa * TL^bet) / 1000
-          # Fecundity with logistic maturity ogive (smoother than linear threshold)
-          maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-          Fec <- Wt * maturity_ogive
-
-          Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
-
-          # Calculate harvest vulnerability with or without slot limit
-          if(input$enable_slot) {
-            Slot_upper <- input$slot_upper
-            # Use extremely small SD for near-step-function slot boundaries
-            Slot_upperSD <- 0.01
-            HarvlimSD_slot <- 0.01
-
-            # Logistic for minimum size (vulnerable above min)
-            Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
-            # Logistic for maximum size (vulnerable below max)
-            Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
-
-            if(input$slot_type == "traditional") {
-              # Traditional slot: harvest ONLY within slot (min to max)
-              # Zero vulnerability outside slot
-              Vulharv <- Vulharv_above_min * Vulharv_below_max
-            } else {
-              # Protective slot: PROTECT within slot (min to max)
-              # Zero vulnerability within slot, full vulnerability outside
-              Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
-            }
-          } else {
-            # Standard minimum length limit only
-            Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
-          }
-
-          # Apply maximum length limit if enabled (protects large fish)
-          if(input$enable_max_limit) {
-            Max_harvest_size <- input$max_harvest_size
-            Max_harvestSD <- 0.01  # Sharp cutoff
-            # Logistic for maximum size (vulnerable below max)
-            Vulharv_below_max_limit <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
-            # Apply max limit: fish above max size are protected (vulnerability = 0)
-            Vulharv <- Vulharv * Vulharv_below_max_limit
-          }
 
           for(i in 2:Ymax) {
             N[i, 1] <- Rcapacity[i - 1]
