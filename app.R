@@ -935,7 +935,8 @@ server <- function(input, output, session) {
            color = "Type") +
       scale_color_manual(values = c("VulCapture" = "blue", "VulHarvest" = "red"),
                          labels = c("Capture", "Harvest")) +
-      theme_minimal()
+      theme_minimal() +
+      theme(legend.position = "bottom")
 
     ggplotly(p)
   })
