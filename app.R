@@ -925,10 +925,11 @@ server <- function(input, output, session) {
 
     # Get the full range of length data
     length_range <- range(pop_data$Length, na.rm = TRUE)
+    x_max <- ceiling(length_range[2] * 1.05 / 100) * 100  # Round up to nearest 100
 
     p <- ggplot(vul_long, aes(x = Length, y = Vulnerability, color = Type)) +
       geom_line(size = 1.2) +
-      scale_x_continuous(limits = c(0, length_range[2] * 1.05)) +
+      scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
       labs(title = "Vulnerability Curves by Length",
            x = "Total Length (mm)", y = "Vulnerability",
            color = "Type") +
@@ -946,13 +947,14 @@ server <- function(input, output, session) {
 
     # Get the full range of length data (same as vulnerability plot)
     length_range <- range(pop_data$Length, na.rm = TRUE)
+    x_max <- ceiling(length_range[2] * 1.05 / 100) * 100  # Round up to nearest 100
 
     # Create weighted histogram data
     # For each age class, we have abundance and length
     # We'll create a histogram showing the distribution of lengths weighted by abundance
     p <- ggplot(pop_data, aes(x = Length, y = Abundance_median)) +
       geom_col(fill = "steelblue", alpha = 0.7, color = "black") +
-      scale_x_continuous(limits = c(0, length_range[2] * 1.05)) +
+      scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
       labs(title = "Length-Frequency Distribution (Equilibrium)",
            x = "Total Length (mm)", y = "Abundance") +
       theme_minimal()
