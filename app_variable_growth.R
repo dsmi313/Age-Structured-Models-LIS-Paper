@@ -633,9 +633,13 @@ server <- function(input, output, session) {
         K <- growth_params$vbk
         Linf <- growth_params$Linf
 
-        # Growth increment (von Bertalanffy-based)
-        # Ensure positive growth, even for fish near/above Linf
-        growth_increment <- max(0.1, K * (Linf - current_length))
+        # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
+        # Proper VB increment: ΔL = (L∞ - L_t) * (1 - exp(-K))
+        # This gives: L_{t+1} = L∞ * (1 - exp(-K)) + L_t * exp(-K)
+        growth_increment <- (Linf - current_length) * (1 - exp(-K))
+
+        # Ensure positive growth, even for fish at/above Linf
+        growth_increment <- max(0.1, growth_increment)
 
         # Add variability: SD = growth_increment * CV
         # Set minimum SD to avoid pnorm() issues
