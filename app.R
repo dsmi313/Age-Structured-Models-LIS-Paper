@@ -584,7 +584,8 @@ server <- function(input, output, session) {
           Vulharv <- Vulharv_above_min * Vulharv_below_max
         } else {
           # Protective slot: PROTECT within slot (min to max)
-          Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
+          # Multiply by Vulcap to ensure fish below capture size can't be harvested
+          Vulharv <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap
         }
       } else if(input$enable_max_limit) {
         # MAXIMUM LENGTH LIMIT: protect all fish above max size
@@ -1179,13 +1180,19 @@ server <- function(input, output, session) {
         Slot_upperSD <- 0.01
         HarvlimSD_slot <- 0.01
 
-        Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
+        # Effective minimum is the LARGER of Harvlim or Capsize
+        # (can't harvest what you can't catch!)
+        Effective_min <- max(Harvlim, Capsize)
+
+        Vulharv_above_min <- 1 / (1 + exp(-(TL - Effective_min) / HarvlimSD_slot))
         Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
 
         if(input$slot_type == "traditional") {
           Vulharv <- Vulharv_above_min * Vulharv_below_max
         } else {
-          Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
+          # Protective slot: PROTECT within slot (min to max)
+          # Multiply by Vulcap to ensure fish below capture size can't be harvested
+          Vulharv <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap
         }
       } else if(input$enable_max_limit) {
         # MAXIMUM LENGTH LIMIT: protect all fish above max size
