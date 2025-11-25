@@ -608,11 +608,16 @@ server <- function(input, output, session) {
       # Natural mortality (annual survival rate)
       S_annual <- exp(-Nat_mort)
 
+      # UNFISHED survival by length bin (natural mortality only, NO fishing)
+      # This is used for building unfished equilibrium and SPR denominator
+      Unfished_survival_bins <- rep(S_annual, L_bins)
+
+      # FISHED survival by length bin (includes fishing mortality)
       # Fishing mortality by length bin
       F_bins <- Vulharv_bins * U
       # Release mortality from discarded fish
       Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
-      # Total annual survival by length bin
+      # Total annual survival by length bin WITH FISHING
       Survival_bins <- S_annual * (1 - F_bins) * (1 - Release_mort_bins)
 
       # ========================================================================
@@ -716,23 +721,23 @@ server <- function(input, output, session) {
         YPR <- rep(NA, Ymax)
         Prop <- rep(NA, Ymax)
 
-        # Set initial population structure (unfished equilibrium in length bins)
+        # Set initial population structure (UNFISHED equilibrium in length bins)
         # Start with recruitment distributed across length bins
         N[1, ] <- Ro * recruit_dist
 
-        # Let population reach equilibrium over first few years
+        # Build UNFISHED equilibrium over first 20 years (NO fishing mortality)
         for(init_year in 2:min(20, Ymax)) {
-          # Apply survival
-          N_survive <- N[init_year-1, ] * Survival_bins
+          # Apply UNFISHED survival (natural mortality only, NO fishing)
+          N_survive <- N[init_year-1, ] * Unfished_survival_bins
 
           # Apply growth (move to new length bins)
           N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
 
-          # Add recruitment
+          # Add deterministic recruitment (no stochasticity in unfished equilibrium)
           N[init_year, ] <- N[init_year, ] + Ro * recruit_dist
         }
 
-        # Pre-compute SPR denominator (unfished spawning potential)
+        # Pre-compute SPR denominator (unfished spawning potential at equilibrium)
         SPR_denom <- sum(N[min(20, Ymax), ] * Fec_bins)
 
         # Generate stochastic recruitment for this simulation
