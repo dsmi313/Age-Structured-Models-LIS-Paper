@@ -547,74 +547,116 @@ server <- function(input, output, session) {
       Harvlim <- input$harvlim
       HarvlimSD <- Harvlim * 0.01
 
-      Age <- seq(1, Amax)
+      # ========================================================================
+      # LENGTH-STRUCTURED MODEL WITH GROWTH VARIABILITY
+      # ========================================================================
 
-      # Pre-compute age-specific variables (deterministic, same across all simulations)
-      # Natural survival
-      S <- exp(-Nat_mort)^(Age - 1)
-      So <- exp(-Nat_mort)
+      # Define length bins (10mm bins)
+      bin_width <- 10
+      max_length <- ceiling(growth_params$Linf * 1.2)  # 120% of Linf to be safe
+      length_bins <- seq(0, max_length, by = bin_width)
+      L_bins <- length(length_bins) - 1  # Number of bins
+      bin_midpoints <- (length_bins[-1] + length_bins[-(L_bins+1)]) / 2
 
-      # Growth: length and weight at age
-      TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
-      Wt <- (alfa * TL^bet) / 1000
+      # Get growth CV
+      growth_cv <- input$growth_cv
+      if(growth_cv == 0) growth_cv <- 0.001  # Avoid division by zero
+
+      # Pre-compute length-specific variables for each bin
+      # Weight at length
+      Wt_bins <- (alfa * bin_midpoints^bet) / 1000
 
       # Fecundity with logistic maturity ogive
-      Wmat <- (alfa * input$mat_size^bet) / 1000  # Use mean maturity size
-      maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-      Fec <- Wt * maturity_ogive
+      Wmat <- (alfa * input$mat_size^bet) / 1000
+      maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
+      Fec_bins <- Wt_bins * maturity_ogive_bins
 
-      # Capture vulnerability
-      Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+      # Capture vulnerability by length
+      Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
 
-      # Harvest vulnerability (depends on regulation type - mutually exclusive)
+      # Harvest vulnerability by length (depends on regulation type)
       if(input$enable_slot) {
-        # SLOT LIMIT: harvest or protect within a size range
         Slot_upper <- input$slot_upper
         Slot_upperSD <- 0.01
         HarvlimSD_slot <- 0.01
-
-        # Effective minimum is the LARGER of Harvlim or Capsize
-        # (can't harvest what you can't catch!)
         Effective_min <- max(Harvlim, Capsize)
 
-        # Logistic for minimum size (vulnerable above effective min)
-        Vulharv_above_min <- 1 / (1 + exp(-(TL - Effective_min) / HarvlimSD_slot))
-        # Logistic for maximum size (vulnerable below max)
-        Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
+        Vulharv_above_min <- 1 / (1 + exp(-(bin_midpoints - Effective_min) / HarvlimSD_slot))
+        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Slot_upper) / Slot_upperSD))
 
         if(input$slot_type == "traditional") {
-          # Traditional slot: harvest ONLY within slot (min to max)
-          Vulharv <- Vulharv_above_min * Vulharv_below_max
+          Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
         } else {
-          # Protective slot: PROTECT within slot (min to max)
-          # Multiply by Vulcap to ensure fish below capture size can't be harvested
-          Vulharv <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap
+          Vulharv_bins <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap_bins
         }
       } else if(input$enable_max_limit) {
-        # MAXIMUM LENGTH LIMIT: protect all fish above max size
-        # Minimum is automatically set to capture size (can't harvest what you can't catch!)
         Max_harvest_size <- input$max_harvest_size
         Max_harvestSD <- 0.01
-
-        # Use Capsize as the effective minimum (fish below capture size can't be harvested)
-        Vulharv_above_capture <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
-        Vulharv_below_max <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
-
-        # Harvest window: from capture size to max size
-        Vulharv <- Vulharv_above_capture * Vulharv_below_max
+        Vulharv_above_capture <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
+        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Max_harvest_size) / Max_harvestSD))
+        Vulharv_bins <- Vulharv_above_capture * Vulharv_below_max
       } else {
-        # STANDARD MINIMUM LENGTH LIMIT: protect fish below minimum size
-        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+        Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
       }
+
+      # Trophy vulnerability by length
+      trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
 
       # Get exploitation rate
       U <- input$exploitation
 
-      # Pre-compute mortality vector for age progression (vectorized)
-      mort_vec <- So * (1 - (Vulcap - Vulharv) * U * DisMort) * (1 - Vulharv * U)
+      # Natural mortality (annual survival rate)
+      S_annual <- exp(-Nat_mort)
 
-      # Pre-compute trophy vulnerability for all ages
-      trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+      # Fishing mortality by length bin
+      F_bins <- Vulharv_bins * U
+      # Release mortality from discarded fish
+      Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
+      # Total annual survival by length bin
+      Survival_bins <- S_annual * (1 - F_bins) * (1 - Release_mort_bins)
+
+      # ========================================================================
+      # GROWTH TRANSITION MATRIX
+      # ========================================================================
+      # Create matrix: Growth_matrix[i, j] = prob of moving from bin i to bin j in one year
+
+      Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
+
+      for(i in 1:L_bins) {
+        current_length <- bin_midpoints[i]
+
+        # Calculate expected length next year using inverse VB to get age
+        # then forward VB to get length at age+1
+        # Simplified: use growth rate directly
+        K <- growth_params$vbk
+        Linf <- growth_params$Linf
+
+        # Growth increment (von Bertalanffy-based)
+        growth_increment <- K * (Linf - current_length)
+
+        # Add variability: SD = growth_increment * CV
+        growth_sd <- growth_increment * growth_cv
+
+        # Distribute probability across bins
+        for(j in 1:L_bins) {
+          bin_lower <- length_bins[j]
+          bin_upper <- length_bins[j+1]
+
+          # Expected length next year
+          expected_length <- current_length + growth_increment
+
+          # Probability of being in bin j next year
+          prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
+
+          Growth_matrix[i, j] <- prob
+        }
+
+        # Normalize row to sum to 1 (handle edge effects)
+        row_sum <- sum(Growth_matrix[i, ])
+        if(row_sum > 0) {
+          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
+        }
+      }
 
       # Convert CV to lognormal sigma (used in each simulation)
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
@@ -632,42 +674,75 @@ server <- function(input, output, session) {
       all_YPR <- matrix(NA, Ymax, nsim)
       all_SPR <- matrix(NA, Ymax, nsim)
       all_Prop <- matrix(NA, Ymax, nsim)
-      all_Abundance <- matrix(NA, Amax, nsim)  # Store population structure from all sims
+      all_Abundance <- matrix(NA, L_bins, nsim)  # Store population structure from all sims
+
+      # Calculate mean recruitment length (age-1) and its distribution
+      age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
+      age1_sd_length <- age1_mean_length * growth_cv
+
+      # Create recruitment length distribution (which bins do age-1 fish go into?)
+      recruit_dist <- rep(0, L_bins)
+      for(j in 1:L_bins) {
+        bin_lower <- length_bins[j]
+        bin_upper <- length_bins[j+1]
+        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
+        recruit_dist[j] <- prob
+      }
+      recruit_dist <- recruit_dist / sum(recruit_dist)  # Normalize
 
       for(k in 1:nsim) {
 
         incProgress(1/nsim, detail = paste("Simulation", k, "of", nsim))
 
-        # Initialize matrices for this simulation
-        N <- matrix(NA, Ymax, Amax)
+        # Initialize matrices for this simulation (LENGTH-STRUCTURED)
+        N <- matrix(0, Ymax, L_bins)  # Abundance by year and length bin
         Yield <- rep(NA, Ymax)
         SPRt <- rep(NA, Ymax)
         YPR <- rep(NA, Ymax)
         Prop <- rep(NA, Ymax)
 
-        # Set initial population structure (unfished)
-        N[1, 1] <- 10000
-        N[1, ] <- Ro * S
+        # Set initial population structure (unfished equilibrium in length bins)
+        # Start with recruitment distributed across length bins
+        N[1, ] <- Ro * recruit_dist
+
+        # Let population reach equilibrium over first few years
+        for(init_year in 2:min(20, Ymax)) {
+          # Apply survival
+          N_survive <- N[init_year-1, ] * Survival_bins
+
+          # Apply growth (move to new length bins)
+          N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
+
+          # Add recruitment
+          N[init_year, ] <- N[init_year, ] + Ro * recruit_dist
+        }
 
         # Pre-compute SPR denominator (unfished spawning potential)
-        SPR_denom <- sum(N[1, ] * Fec)
+        SPR_denom <- sum(N[min(20, Ymax), ] * Fec_bins)
 
         # Generate stochastic recruitment for this simulation
         Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
 
-        # Vectorized age progression loop
-        for(i in 2:Ymax) {
-          # Set recruitment for this year
-          N[i, 1] <- Rcapacity[i - 1]
+        # Main simulation loop with stochastic recruitment
+        start_year <- min(21, Ymax)
+        for(i in start_year:Ymax) {
+          # Apply survival to previous year's population
+          N_survive <- N[i-1, ] * Survival_bins
 
-          # Vectorized age progression: all ages advance in one operation
-          N[i, 2:Amax] <- N[i-1, 1:(Amax-1)] * mort_vec[1:(Amax-1)]
+          # Apply growth (transition to new length bins)
+          N[i, ] <- as.vector(N_survive %*% Growth_matrix)
 
-          # Calculate annual metrics (after all ages are updated)
-          Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
-          SPRt[i] <- sum(N[i, ] * Fec) / SPR_denom
-          YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-          Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
+          # Add stochastic recruitment distributed across length bins
+          N[i, ] <- N[i, ] + Rcapacity[i] * recruit_dist
+
+          # Calculate annual metrics
+          total_recruits <- sum(N[i, ] * (recruit_dist > 0.01))  # Approximate recruitment
+          if(total_recruits < 1) total_recruits <- Rcapacity[i]  # Fallback
+
+          Yield[i] <- sum(Wt_bins * Vulharv_bins * N[i, ]) * U
+          SPRt[i] <- sum(N[i, ] * Fec_bins) / SPR_denom
+          YPR[i] <- Yield[i] / Rcapacity[i]
+          Prop[i] <- sum(trophyvul_bins * N[i, ]) / sum(N[i, ])
         }
 
         # Store results (last 50 years)
@@ -711,15 +786,15 @@ server <- function(input, output, session) {
       time_series_data(ts_data)
 
       # Calculate median and quantiles for population structure across all simulations
+      # Now using LENGTH BINS instead of age classes
       pop_data <- data.frame(
-        Age = Age,
-        Length = TL,
-        Weight = Wt,
+        Length = bin_midpoints,
+        Weight = Wt_bins,
         Abundance_median = apply(all_Abundance, 1, median, na.rm = TRUE),
         Abundance_q25 = apply(all_Abundance, 1, quantile, probs = 0.25, na.rm = TRUE),
         Abundance_q75 = apply(all_Abundance, 1, quantile, probs = 0.75, na.rm = TRUE),
-        VulCapture = Vulcap,
-        VulHarvest = Vulharv
+        VulCapture = Vulcap_bins,
+        VulHarvest = Vulharv_bins
       )
       pop_structure_data(pop_data)
 
@@ -886,20 +961,19 @@ server <- function(input, output, session) {
       ))
   })
 
-  # Population structure plot
+  # Population structure plot (now by LENGTH, not age!)
   output$pop_structure <- renderPlotly({
     req(pop_structure_data())
     pop_data <- pop_structure_data()
 
-    p <- ggplot(pop_data, aes(x = Age)) +
+    p <- ggplot(pop_data, aes(x = Length)) +
       geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
                   fill = "steelblue", alpha = 0.3) +
-      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.5) +
+      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.5, width = 10) +
       geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
-      geom_point(aes(y = Abundance_median), color = "darkblue", size = 3) +
-      labs(title = "Population Structure by Age (Median across simulations)",
-           subtitle = "Shaded area shows 25th-75th percentile range",
-           x = "Age", y = "Abundance") +
+      labs(title = "Population Structure by Length (Median across simulations)",
+           subtitle = "Shaded area shows 25th-75th percentile range. Growth variability creates smooth distribution.",
+           x = "Total Length (mm)", y = "Abundance") +
       theme_minimal()
 
     ggplotly(p)
@@ -944,7 +1018,7 @@ server <- function(input, output, session) {
       layout(legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.2))
   })
 
-  # Length-frequency histogram with growth variability
+  # Length-frequency histogram (now directly from length bins!)
   output$length_frequency <- renderPlotly({
     req(pop_structure_data())
     pop_data <- pop_structure_data()
@@ -955,44 +1029,13 @@ server <- function(input, output, session) {
 
     growth_cv <- input$growth_cv
 
-    if(growth_cv == 0) {
-      # Deterministic growth: use original bars
-      p <- ggplot(pop_data, aes(x = Length, y = Abundance_median)) +
-        geom_col(fill = "steelblue", alpha = 0.7, color = "black") +
-        scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
-        labs(title = "Length-Frequency Distribution (Equilibrium) - Deterministic Growth",
-             x = "Total Length (mm)", y = "Abundance") +
-        theme_minimal()
-    } else {
-      # Variable growth: distribute each age class across length bins
-      length_bins <- seq(0, x_max, by = 5)  # 5mm bins
-      bin_centers <- length_bins[-1] - 2.5
-      abundance_by_length <- rep(0, length(bin_centers))
-
-      for(i in 1:nrow(pop_data)) {
-        mean_length <- pop_data$Length[i]
-        sd_length <- mean_length * growth_cv
-        abundance <- pop_data$Abundance_median[i]
-
-        # Distribute abundance across bins using normal distribution
-        for(j in 1:length(bin_centers)) {
-          # Probability density at this bin
-          bin_lower <- length_bins[j]
-          bin_upper <- length_bins[j+1]
-          prob <- pnorm(bin_upper, mean_length, sd_length) - pnorm(bin_lower, mean_length, sd_length)
-          abundance_by_length[j] <- abundance_by_length[j] + abundance * prob
-        }
-      }
-
-      hist_data <- data.frame(Length = bin_centers, Abundance = abundance_by_length)
-
-      p <- ggplot(hist_data, aes(x = Length, y = Abundance)) +
-        geom_col(fill = "steelblue", alpha = 0.7, color = "black", width = 5) +
-        scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
-        labs(title = paste0("Length-Frequency Distribution (Equilibrium) - Variable Growth (CV=", growth_cv, ")"),
-             x = "Total Length (mm)", y = "Abundance") +
-        theme_minimal()
-    }
+    # Population is already in length bins, so just plot directly!
+    p <- ggplot(pop_data, aes(x = Length, y = Abundance_median)) +
+      geom_col(fill = "steelblue", alpha = 0.7, color = "black", width = 10) +
+      scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
+      labs(title = paste0("Length-Frequency Distribution (Equilibrium) - Growth CV = ", growth_cv),
+           x = "Total Length (mm)", y = "Abundance") +
+      theme_minimal()
 
     ggplotly(p)
   })
