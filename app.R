@@ -153,7 +153,7 @@ ui <- fluidPage(
                           tags$br(),
                           tags$strong("Why is age-1 always ~10,000?"), "The model uses lognormal recruitment with median = 10,000. While individual simulations vary widely (see shaded area), the median across many simulations is always ~10,000.",
                           tags$br(),
-                          tags$strong("Shaded area (25th-75th percentile):"), "Shows variation in abundance across simulations due to stochastic recruitment. Wider bands = more recruitment variability."),
+                          tags$strong("Shaded area:"), "Shaded bands show where 95% of population outcomes fall due to stochastic recruitment variability (not uncertainty in the mean estimate)."),
                  plotlyOutput("pop_structure", height = "500px"),
                  br(),
                  h4("Length-Frequency Distribution"),
