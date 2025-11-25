@@ -910,8 +910,12 @@ server <- function(input, output, session) {
       select(Length, VulCapture, VulHarvest) %>%
       pivot_longer(-Length, names_to = "Type", values_to = "Vulnerability")
 
+    # Get the full range of length data
+    length_range <- range(pop_data$Length, na.rm = TRUE)
+
     p <- ggplot(vul_long, aes(x = Length, y = Vulnerability, color = Type)) +
       geom_line(size = 1.2) +
+      scale_x_continuous(limits = c(0, length_range[2] * 1.05)) +
       labs(title = "Vulnerability Curves by Length",
            x = "Total Length (mm)", y = "Vulnerability",
            color = "Type") +
