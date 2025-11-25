@@ -41,6 +41,17 @@ ui <- fluidPage(
       numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.1, max = 1.5, step = 0.05),
       helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (higher = more variable)"))),
 
+      # Density-Dependent Recruitment (Experimental)
+      h4("Recruitment Dynamics (Experimental)", style = "color: orange;"),
+      checkboxInput("enable_ddr", "Enable Density-Dependent Recruitment (Beverton-Holt)", value = FALSE),
+      helpText(tags$small(tags$em(tags$strong("⚠️ Experimental:"), " When disabled (default), recruitment = constant R0 with stochastic noise (traditional per-recruit model). When enabled, recruitment depends on spawning stock biomass."))),
+      conditionalPanel(
+        condition = "input.enable_ddr == true",
+        sliderInput("steepness", "Steepness (h):",
+                    min = 0.5, max = 0.95, value = 0.7, step = 0.01),
+        helpText(tags$small(tags$em("h = 0.5: strong compensation (recruitment proportional to SSB). h = 0.8+: weak compensation (recruitment nearly constant). Typical: 0.7-0.8.")))
+      ),
+
       numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 50, step = 1),
       helpText(tags$small(tags$em("Maximum age class in the model"))),
       br(),
@@ -744,12 +755,37 @@ server <- function(input, output, session) {
         # Pre-compute SPR denominator (unfished spawning potential at equilibrium)
         SPR_denom <- sum(N[min(20, Ymax), ] * Fec_bins)
 
-        # Generate stochastic recruitment for this simulation
-        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+        # Compute unfished SSB0 (for density-dependent recruitment)
+        SSB0 <- sum(N[min(20, Ymax), ] * Fec_bins)  # Same as SPR_denom for this model
+
+        # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
+        if(!input$enable_ddr) {
+          # Traditional per-recruit: constant mean recruitment with noise
+          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+        } else {
+          # Will be calculated dynamically inside loop based on SSB
+          Rcapacity <- rep(NA, Ymax)
+        }
+
+        # Get steepness if DDR is enabled
+        h <- ifelse(input$enable_ddr, input$steepness, 0.7)
 
         # Main simulation loop with stochastic recruitment
         start_year <- min(21, Ymax)
         for(i in start_year:Ymax) {
+          # If DDR enabled, calculate recruitment from previous year's SSB
+          if(input$enable_ddr && i > start_year) {
+            # Calculate spawning stock biomass from PREVIOUS year
+            SSB_t <- sum(N[i-1, ] * Fec_bins)
+
+            # Beverton-Holt recruitment with steepness parameterization
+            # R = (4*h*R0*SSB) / (SSB0*(1-h) + (5*h-1)*SSB)
+            R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
+
+            # Add stochastic noise
+            Rcapacity[i] <- R_BH * rlnorm(1, 0, sd = sigmaR)
+          }
+
           # Apply survival to previous year's population
           N_survive <- N[i-1, ] * Survival_bins
 
@@ -760,8 +796,7 @@ server <- function(input, output, session) {
           N[i, ] <- N[i, ] + Rcapacity[i] * recruit_dist
 
           # Calculate annual metrics
-          total_recruits <- sum(N[i, ] * (recruit_dist > 0.01))  # Approximate recruitment
-          if(total_recruits < 1) total_recruits <- Rcapacity[i]  # Fallback
+          total_recruits <- Rcapacity[i]  # Now correctly using actual recruitment
 
           Yield[i] <- sum(Wt_bins * Vulharv_bins * N[i, ]) * U
           SPRt[i] <- sum(N[i, ] * Fec_bins) / SPR_denom
