@@ -944,11 +944,15 @@ server <- function(input, output, session) {
     req(pop_structure_data())
     pop_data <- pop_structure_data()
 
+    # Get the full range of length data (same as vulnerability plot)
+    length_range <- range(pop_data$Length, na.rm = TRUE)
+
     # Create weighted histogram data
     # For each age class, we have abundance and length
     # We'll create a histogram showing the distribution of lengths weighted by abundance
     p <- ggplot(pop_data, aes(x = Length, y = Abundance_median)) +
       geom_col(fill = "steelblue", alpha = 0.7, color = "black") +
+      scale_x_continuous(limits = c(0, length_range[2] * 1.05)) +
       labs(title = "Length-Frequency Distribution (Equilibrium)",
            x = "Total Length (mm)", y = "Abundance") +
       theme_minimal()
