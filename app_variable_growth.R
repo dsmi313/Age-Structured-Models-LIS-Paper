@@ -625,17 +625,22 @@ server <- function(input, output, session) {
       for(i in 1:L_bins) {
         current_length <- bin_midpoints[i]
 
-        # Calculate expected length next year using inverse VB to get age
-        # then forward VB to get length at age+1
-        # Simplified: use growth rate directly
         K <- growth_params$vbk
         Linf <- growth_params$Linf
 
         # Growth increment (von Bertalanffy-based)
-        growth_increment <- K * (Linf - current_length)
+        # Ensure positive growth, even for fish near/above Linf
+        growth_increment <- max(0.1, K * (Linf - current_length))
 
         # Add variability: SD = growth_increment * CV
-        growth_sd <- growth_increment * growth_cv
+        # Set minimum SD to avoid pnorm() issues
+        growth_sd <- max(0.5, growth_increment * growth_cv)
+
+        # For fish at or above Linf, minimal growth with small SD
+        if(current_length >= Linf * 0.99) {
+          growth_increment <- 0.1
+          growth_sd <- 0.5
+        }
 
         # Distribute probability across bins
         for(j in 1:L_bins) {
@@ -655,6 +660,9 @@ server <- function(input, output, session) {
         row_sum <- sum(Growth_matrix[i, ])
         if(row_sum > 0) {
           Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
+        } else {
+          # If no growth possible (at max bin), stay in current bin
+          Growth_matrix[i, i] <- 1.0
         }
       }
 
@@ -678,7 +686,7 @@ server <- function(input, output, session) {
 
       # Calculate mean recruitment length (age-1) and its distribution
       age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-      age1_sd_length <- age1_mean_length * growth_cv
+      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
 
       # Create recruitment length distribution (which bins do age-1 fish go into?)
       recruit_dist <- rep(0, L_bins)
@@ -686,9 +694,16 @@ server <- function(input, output, session) {
         bin_lower <- length_bins[j]
         bin_upper <- length_bins[j+1]
         prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
-        recruit_dist[j] <- prob
+        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
       }
-      recruit_dist <- recruit_dist / sum(recruit_dist)  # Normalize
+      # Normalize and handle edge case of all zeros
+      if(sum(recruit_dist) > 0) {
+        recruit_dist <- recruit_dist / sum(recruit_dist)
+      } else {
+        # Fallback: put all recruitment in the bin closest to age1_mean_length
+        closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
+        recruit_dist[closest_bin] <- 1.0
+      }
 
       for(k in 1:nsim) {
 
