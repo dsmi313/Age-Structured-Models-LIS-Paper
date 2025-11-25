@@ -907,9 +907,21 @@ server <- function(input, output, session) {
     req(pop_structure_data())
     pop_data <- pop_structure_data()
 
-    vul_long <- pop_data %>%
-      select(Length, VulCapture, VulHarvest) %>%
-      pivot_longer(-Length, names_to = "Type", values_to = "Vulnerability")
+    # Create separate data frames for each curve with slight offset for visibility
+    capture_data <- data.frame(
+      Length = pop_data$Length,
+      Vulnerability = pop_data$VulCapture,
+      Type = "VulCapture"
+    )
+
+    # Offset harvest curve by 2mm so it doesn't completely overlap capture curve
+    harvest_data <- data.frame(
+      Length = pop_data$Length + 2,
+      Vulnerability = pop_data$VulHarvest,
+      Type = "VulHarvest"
+    )
+
+    vul_long <- rbind(capture_data, harvest_data)
 
     # Get the full range of length data
     length_range <- range(pop_data$Length, na.rm = TRUE)
