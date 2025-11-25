@@ -981,38 +981,18 @@ server <- function(input, output, session) {
       ))
   })
 
-  # Population structure plot (now by LENGTH, not age!)
+  # Population structure plot (by LENGTH)
   output$pop_structure <- renderPlotly({
     req(pop_structure_data())
     pop_data <- pop_structure_data()
-
-    # Get growth parameters to add age reference lines
-    growth_params <- get_growth_params()
-
-    # Calculate expected length at each age using von Bertalanffy
-    ages <- 1:input$amax
-    age_lengths <- growth_params$Linf * (1 - exp(-growth_params$vbk * (ages - growth_params$t0)))
-
-    # Create data frame for age annotations
-    age_refs <- data.frame(
-      age = ages,
-      length = age_lengths,
-      label = paste("Age", ages)
-    )
 
     p <- ggplot(pop_data, aes(x = Length)) +
       geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
                   fill = "steelblue", alpha = 0.3) +
       geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.5, width = 10) +
       geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
-      # Add vertical lines showing expected length at each age
-      geom_vline(data = age_refs, aes(xintercept = length),
-                 linetype = "dashed", color = "red", alpha = 0.5) +
-      # Add age labels at top of plot
-      geom_text(data = age_refs, aes(x = length, y = max(pop_data$Abundance_q75) * 1.05, label = age),
-                color = "red", size = 3, angle = 0) +
-      labs(title = "Population Structure by Length (with Age References)",
-           subtitle = "Shaded area shows 25th-75th percentile range. Red dashed lines show mean length-at-age.",
+      labs(title = "Population Structure by Length",
+           subtitle = "Shaded area shows 25th-75th percentile range. Peaks represent cohorts at equilibrium.",
            x = "Total Length (mm)", y = "Abundance") +
       theme_minimal()
 
