@@ -935,10 +935,10 @@ server <- function(input, output, session) {
            color = "Type") +
       scale_color_manual(values = c("VulCapture" = "blue", "VulHarvest" = "red"),
                          labels = c("Capture", "Harvest")) +
-      theme_minimal() +
-      theme(legend.position = "bottom")
+      theme_minimal()
 
-    ggplotly(p)
+    ggplotly(p) %>%
+      layout(legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.2))
   })
 
   # Length-frequency histogram
