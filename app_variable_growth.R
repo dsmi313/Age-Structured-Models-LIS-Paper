@@ -15,14 +15,15 @@ ui <- fluidPage(
       # Species Selection
       h4("Species / Biological Parameters"),
       selectInput("species", "Species:",
-                  choices = c("White Crappie" = "crappie",
+                  choices = c("White Crappie" = "white_crappie",
+                              "Black Crappie" = "black_crappie",
                               "Walleye" = "walleye",
                               "Largemouth Bass" = "lmb",
                               "Smallmouth Bass" = "smb",
                               "Channel Catfish" = "channel_catfish",
                               "Blue Catfish" = "blue_catfish",
                               "Custom" = "custom"),
-                  selected = "crappie"),
+                  selected = "white_crappie"),
 
       h5("Weight-Length Relationship: W = a × L^b"),
       helpText(tags$small(tags$em("W in kg, L in mm"))),
@@ -276,7 +277,20 @@ server <- function(input, output, session) {
 
   # Species parameter presets
   observeEvent(input$species, {
-    if (input$species == "crappie") {
+    if (input$species == "white_crappie") {
+      updateNumericInput(session, "wl_a", value = 2.40991e-6)
+      updateNumericInput(session, "wl_b", value = 3.38)
+      updateNumericInput(session, "mat_size", value = 180)  # ~7 inches (literature: 6-7" typical)
+      updateNumericInput(session, "memorable_size", value = 305)  # 12 inches
+      updateNumericInput(session, "linf", value = 353)  # LIS paper
+      updateNumericInput(session, "vbk", value = 0.374)  # LIS paper
+      updateNumericInput(session, "t0", value = 0.197)  # LIS paper
+      updateNumericInput(session, "nat_mort", value = 0.374)  # M = K (default)
+      updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
+      updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
+      showNotification("Loaded White Crappie parameters (LIS paper)", type = "message")
+
+    } else if (input$species == "black_crappie") {
       updateNumericInput(session, "wl_a", value = 2.40991e-6)
       updateNumericInput(session, "wl_b", value = 3.38)
       updateNumericInput(session, "mat_size", value = 180)  # ~7 inches (literature: 6-7" typical)
@@ -287,7 +301,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.19)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
       updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
-      showNotification("Loaded White Crappie parameters", type = "message")
+      showNotification("Loaded Black Crappie parameters (FishBase)", type = "message")
 
     } else if (input$species == "walleye") {
       # Craig et al. 1995; Weight-length from North American data
@@ -406,8 +420,27 @@ server <- function(input, output, session) {
   observeEvent(input$growth_preset, {
     req(input$species, input$growth_preset)
 
-    # White Crappie growth parameters (FishBase quartile-based, using Black Crappie data)
-    if (input$species == "crappie") {
+    # White Crappie growth parameters (from LIS paper)
+    if (input$species == "white_crappie") {
+      if (input$growth_preset == "slow") {
+        updateNumericInput(session, "linf", value = 333)
+        updateNumericInput(session, "vbk", value = 0.325)
+        updateNumericInput(session, "t0", value = 0.174)
+        updateNumericInput(session, "nat_mort", value = 0.325)  # M = K
+      } else if (input$growth_preset == "moderate") {
+        updateNumericInput(session, "linf", value = 353)
+        updateNumericInput(session, "vbk", value = 0.374)
+        updateNumericInput(session, "t0", value = 0.197)
+        updateNumericInput(session, "nat_mort", value = 0.374)  # M = K
+      } else if (input$growth_preset == "fast") {
+        updateNumericInput(session, "linf", value = 356)
+        updateNumericInput(session, "vbk", value = 0.691)
+        updateNumericInput(session, "t0", value = -0.056)
+        updateNumericInput(session, "nat_mort", value = 0.691)  # M = K
+      }
+    }
+    # Black Crappie growth parameters (FishBase quartile-based)
+    else if (input$species == "black_crappie") {
       if (input$growth_preset == "slow") {
         updateNumericInput(session, "linf", value = 440)  # Q3 Linf
         updateNumericInput(session, "vbk", value = 0.17)  # Q1 K
