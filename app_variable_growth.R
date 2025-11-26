@@ -792,22 +792,22 @@ server <- function(input, output, session) {
         SSB0 <- sum(N[min(20, Ymax), ] * Fec_bins)  # Same as SPR_denom for this model
 
         # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
-        if(!input$enable_ddr) {
-          # Traditional per-recruit: constant mean recruitment with noise
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
-        } else {
+        if(isTRUE(input$enable_ddr)) {
           # Will be calculated dynamically inside loop based on SSB
           Rcapacity <- rep(NA, Ymax)
+        } else {
+          # Traditional per-recruit: constant mean recruitment with noise
+          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
         }
 
         # Get steepness if DDR is enabled
-        h <- ifelse(input$enable_ddr, input$steepness, 0.7)
+        h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
         # Main simulation loop with stochastic recruitment
         start_year <- min(21, Ymax)
         for(i in start_year:Ymax) {
           # If DDR enabled, calculate recruitment from previous year's SSB
-          if(input$enable_ddr && i > start_year) {
+          if(isTRUE(input$enable_ddr)) {
             # Calculate spawning stock biomass from PREVIOUS year
             SSB_t <- sum(N[i-1, ] * Fec_bins)
 
@@ -1505,16 +1505,16 @@ server <- function(input, output, session) {
           SSB0 <- sum(N[min(20, Ymax), ] * Fec_bins)
 
           # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
-          if(!input$enable_ddr) {
-            # Traditional per-recruit: constant mean recruitment with noise
-            Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
-          } else {
+          if(isTRUE(input$enable_ddr)) {
             # Will be calculated dynamically inside loop based on SSB
             Rcapacity <- rep(NA, Ymax)
+          } else {
+            # Traditional per-recruit: constant mean recruitment with noise
+            Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
           }
 
           # Get steepness if DDR is enabled
-          h <- ifelse(input$enable_ddr, input$steepness, 0.7)
+          h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
           # Start main simulation after equilibrium period
           start_year <- min(21, Ymax)
@@ -1522,7 +1522,7 @@ server <- function(input, output, session) {
           # Main simulation loop with FISHING mortality
           for(i in start_year:Ymax) {
             # If DDR enabled, calculate recruitment from previous year's SSB
-            if(input$enable_ddr && i > start_year) {
+            if(isTRUE(input$enable_ddr)) {
               # Calculate spawning stock biomass from PREVIOUS year
               SSB_t <- sum(N[i-1, ] * Fec_bins)
 
