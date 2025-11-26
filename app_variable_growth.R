@@ -1464,7 +1464,7 @@ server <- function(input, output, session) {
       nsim <- input$yield_curve_nsim
 
       # Use shorter simulation for yield curves (faster, equilibrium reached by year 40)
-      Ymax_yield <- 60
+      Ymax_yield <- 50
 
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.1)  # Reduced resolution for speed (11 points instead of 21)
@@ -1582,9 +1582,9 @@ server <- function(input, output, session) {
             Prop[i] <- sum(trophyvul_bins * N[i, ]) / abundance_now
           }
 
-          ypr_vals[k] <- mean(YPR[50:Ymax_yield], na.rm = TRUE)
-          spr_vals[k] <- mean(SPRt[50:Ymax_yield], na.rm = TRUE)
-          prop_vals[k] <- mean(Prop[50:Ymax_yield], na.rm = TRUE)
+          ypr_vals[k] <- mean(YPR[40:Ymax_yield], na.rm = TRUE)
+          spr_vals[k] <- mean(SPRt[40:Ymax_yield], na.rm = TRUE)
+          prop_vals[k] <- mean(Prop[40:Ymax_yield], na.rm = TRUE)
         }
 
         # Store results in pre-allocated data frame (much faster than rbind)
