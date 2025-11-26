@@ -15,7 +15,7 @@ ui <- fluidPage(
       # Species Selection
       h4("Species / Biological Parameters"),
       selectInput("species", "Species:",
-                  choices = c("Crappie" = "crappie",
+                  choices = c("White Crappie" = "crappie",
                               "Walleye" = "walleye",
                               "Largemouth Bass" = "lmb",
                               "Smallmouth Bass" = "smb",
@@ -281,13 +281,13 @@ server <- function(input, output, session) {
       updateNumericInput(session, "wl_b", value = 3.38)
       updateNumericInput(session, "mat_size", value = 180)  # ~7 inches (literature: 6-7" typical)
       updateNumericInput(session, "memorable_size", value = 305)  # 12 inches
-      updateNumericInput(session, "linf", value = 353)
-      updateNumericInput(session, "vbk", value = 0.374)
-      updateNumericInput(session, "t0", value = 0.197)
-      updateNumericInput(session, "nat_mort", value = 0.374)  # M = K (default)
+      updateNumericInput(session, "linf", value = 381)  # FishBase Q2 (moderate growth)
+      updateNumericInput(session, "vbk", value = 0.19)  # FishBase Q2
+      updateNumericInput(session, "t0", value = 0.34)  # FishBase (single value)
+      updateNumericInput(session, "nat_mort", value = 0.19)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
       updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
-      showNotification("Loaded Crappie parameters", type = "message")
+      showNotification("Loaded White Crappie parameters", type = "message")
 
     } else if (input$species == "walleye") {
       # Craig et al. 1995; Weight-length from North American data
@@ -406,118 +406,118 @@ server <- function(input, output, session) {
   observeEvent(input$growth_preset, {
     req(input$species, input$growth_preset)
 
-    # Crappie growth parameters (from original study)
+    # White Crappie growth parameters (FishBase quartile-based, using Black Crappie data)
     if (input$species == "crappie") {
       if (input$growth_preset == "slow") {
-        updateNumericInput(session, "linf", value = 333)
-        updateNumericInput(session, "vbk", value = 0.325)
-        updateNumericInput(session, "t0", value = 0.174)
-        updateNumericInput(session, "nat_mort", value = 0.325)  # M = K
+        updateNumericInput(session, "linf", value = 440)  # Q3 Linf
+        updateNumericInput(session, "vbk", value = 0.17)  # Q1 K
+        updateNumericInput(session, "t0", value = 0.34)  # Single value (limited data)
+        updateNumericInput(session, "nat_mort", value = 0.17)  # M = K
       } else if (input$growth_preset == "moderate") {
-        updateNumericInput(session, "linf", value = 353)
-        updateNumericInput(session, "vbk", value = 0.374)
-        updateNumericInput(session, "t0", value = 0.197)
-        updateNumericInput(session, "nat_mort", value = 0.374)  # M = K
+        updateNumericInput(session, "linf", value = 381)  # Q2 Linf
+        updateNumericInput(session, "vbk", value = 0.19)  # Q2 K
+        updateNumericInput(session, "t0", value = 0.34)  # Single value (limited data)
+        updateNumericInput(session, "nat_mort", value = 0.19)  # M = K
       } else if (input$growth_preset == "fast") {
-        updateNumericInput(session, "linf", value = 356)
-        updateNumericInput(session, "vbk", value = 0.691)
-        updateNumericInput(session, "t0", value = -0.056)
-        updateNumericInput(session, "nat_mort", value = 0.691)  # M = K
+        updateNumericInput(session, "linf", value = 356)  # Q1 Linf
+        updateNumericInput(session, "vbk", value = 0.26)  # Q3 K
+        updateNumericInput(session, "t0", value = 0.34)  # Single value (limited data)
+        updateNumericInput(session, "nat_mort", value = 0.26)  # M = K
       }
     }
-    # Walleye growth parameters (FishBase K range: 0.05-0.45)
+    # Walleye growth parameters (FishBase quartile-based)
     else if (input$species == "walleye") {
       if (input$growth_preset == "slow") {
-        updateNumericInput(session, "linf", value = 500)  # Northern populations
-        updateNumericInput(session, "vbk", value = 0.12)
-        updateNumericInput(session, "t0", value = -0.5)
-        updateNumericInput(session, "nat_mort", value = 0.12)  # M = K
+        updateNumericInput(session, "linf", value = 748)  # Q3 Linf
+        updateNumericInput(session, "vbk", value = 0.24)  # Q1 K
+        updateNumericInput(session, "t0", value = -0.66)  # Q1 t0
+        updateNumericInput(session, "nat_mort", value = 0.24)  # M = K
       } else if (input$growth_preset == "moderate") {
-        updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
-        updateNumericInput(session, "vbk", value = 0.215)
-        updateNumericInput(session, "t0", value = -0.632)
-        updateNumericInput(session, "nat_mort", value = 0.215)  # M = K
+        updateNumericInput(session, "linf", value = 683)  # Q2 Linf
+        updateNumericInput(session, "vbk", value = 0.32)  # Q2 K
+        updateNumericInput(session, "t0", value = -0.52)  # Q2 t0
+        updateNumericInput(session, "nat_mort", value = 0.32)  # M = K
       } else if (input$growth_preset == "fast") {
-        updateNumericInput(session, "linf", value = 430)  # Southern populations
-        updateNumericInput(session, "vbk", value = 0.35)
-        updateNumericInput(session, "t0", value = -0.75)
-        updateNumericInput(session, "nat_mort", value = 0.35)  # M = K
+        updateNumericInput(session, "linf", value = 615)  # Q1 Linf
+        updateNumericInput(session, "vbk", value = 0.43)  # Q3 K
+        updateNumericInput(session, "t0", value = -0.20)  # Q3 t0
+        updateNumericInput(session, "nat_mort", value = 0.43)  # M = K
       }
     }
-    # Largemouth Bass growth parameters
+    # Largemouth Bass growth parameters (FishBase quartile-based)
     else if (input$species == "lmb") {
       if (input$growth_preset == "slow") {
-        updateNumericInput(session, "linf", value = 400)  # Northern strain
-        updateNumericInput(session, "vbk", value = 0.25)
-        updateNumericInput(session, "t0", value = 0.1)
-        updateNumericInput(session, "nat_mort", value = 0.25)  # M = K
+        updateNumericInput(session, "linf", value = 638)  # Q3 Linf
+        updateNumericInput(session, "vbk", value = 0.17)  # Q1 K
+        updateNumericInput(session, "t0", value = -0.21)  # Q1 t0
+        updateNumericInput(session, "nat_mort", value = 0.17)  # M = K
       } else if (input$growth_preset == "moderate") {
-        updateNumericInput(session, "linf", value = 450)  # Average
-        updateNumericInput(session, "vbk", value = 0.35)
-        updateNumericInput(session, "t0", value = 0.04)
-        updateNumericInput(session, "nat_mort", value = 0.35)  # M = K
+        updateNumericInput(session, "linf", value = 584)  # Q2 Linf
+        updateNumericInput(session, "vbk", value = 0.22)  # Q2 K
+        updateNumericInput(session, "t0", value = 0.00)  # Q2 t0
+        updateNumericInput(session, "nat_mort", value = 0.22)  # M = K
       } else if (input$growth_preset == "fast") {
-        updateNumericInput(session, "linf", value = 550)  # Florida strain
-        updateNumericInput(session, "vbk", value = 0.42)
-        updateNumericInput(session, "t0", value = -0.1)
-        updateNumericInput(session, "nat_mort", value = 0.42)  # M = K
+        updateNumericInput(session, "linf", value = 540)  # Q1 Linf
+        updateNumericInput(session, "vbk", value = 0.28)  # Q3 K
+        updateNumericInput(session, "t0", value = 0.10)  # Q3 t0
+        updateNumericInput(session, "nat_mort", value = 0.28)  # M = K
       }
     }
-    # Smallmouth Bass growth parameters (FishBase K range: 0.10-0.28)
+    # Smallmouth Bass growth parameters (FishBase quartile-based)
     else if (input$species == "smb") {
       if (input$growth_preset == "slow") {
-        updateNumericInput(session, "linf", value = 450)  # Oligotrophic systems
-        updateNumericInput(session, "vbk", value = 0.18)
-        updateNumericInput(session, "t0", value = -0.2)
-        updateNumericInput(session, "nat_mort", value = 0.18)  # M = K
+        updateNumericInput(session, "linf", value = 608)  # Q3 Linf
+        updateNumericInput(session, "vbk", value = 0.14)  # Q1 K
+        updateNumericInput(session, "t0", value = -0.45)  # Q1 t0
+        updateNumericInput(session, "nat_mort", value = 0.14)  # M = K
       } else if (input$growth_preset == "moderate") {
-        updateNumericInput(session, "linf", value = 420)  # Typical
-        updateNumericInput(session, "vbk", value = 0.25)
-        updateNumericInput(session, "t0", value = -0.3)
-        updateNumericInput(session, "nat_mort", value = 0.25)  # M = K
+        updateNumericInput(session, "linf", value = 525)  # Q2 Linf
+        updateNumericInput(session, "vbk", value = 0.17)  # Q2 K
+        updateNumericInput(session, "t0", value = -0.33)  # Q2 t0
+        updateNumericInput(session, "nat_mort", value = 0.17)  # M = K
       } else if (input$growth_preset == "fast") {
-        updateNumericInput(session, "linf", value = 380)  # Productive systems
-        updateNumericInput(session, "vbk", value = 0.35)
-        updateNumericInput(session, "t0", value = -0.4)
-        updateNumericInput(session, "nat_mort", value = 0.35)  # M = K
+        updateNumericInput(session, "linf", value = 506)  # Q1 Linf
+        updateNumericInput(session, "vbk", value = 0.22)  # Q3 K
+        updateNumericInput(session, "t0", value = 0.02)  # Q3 t0
+        updateNumericInput(session, "nat_mort", value = 0.22)  # M = K
       }
     }
-    # Channel Catfish growth parameters (literature-based estimates)
+    # Channel Catfish growth parameters (FishBase quartile-based)
     else if (input$species == "channel_catfish") {
       if (input$growth_preset == "slow") {
-        updateNumericInput(session, "linf", value = 600)  # Slower growing populations
-        updateNumericInput(session, "vbk", value = 0.12)
-        updateNumericInput(session, "t0", value = -1.0)
+        updateNumericInput(session, "linf", value = 797)  # Q3 Linf
+        updateNumericInput(session, "vbk", value = 0.12)  # Q1 K
+        updateNumericInput(session, "t0", value = -0.82)  # Q1 t0
         updateNumericInput(session, "nat_mort", value = 0.12)  # M = K
       } else if (input$growth_preset == "moderate") {
-        updateNumericInput(session, "linf", value = 650)  # Typical growth
-        updateNumericInput(session, "vbk", value = 0.18)
-        updateNumericInput(session, "t0", value = -1.2)
-        updateNumericInput(session, "nat_mort", value = 0.18)  # M = K
+        updateNumericInput(session, "linf", value = 592)  # Q2 Linf
+        updateNumericInput(session, "vbk", value = 0.17)  # Q2 K
+        updateNumericInput(session, "t0", value = -0.62)  # Q2 t0
+        updateNumericInput(session, "nat_mort", value = 0.17)  # M = K
       } else if (input$growth_preset == "fast") {
-        updateNumericInput(session, "linf", value = 700)  # Fast growing populations
-        updateNumericInput(session, "vbk", value = 0.24)
-        updateNumericInput(session, "t0", value = -1.5)
-        updateNumericInput(session, "nat_mort", value = 0.24)  # M = K
+        updateNumericInput(session, "linf", value = 470)  # Q1 Linf
+        updateNumericInput(session, "vbk", value = 0.23)  # Q3 K
+        updateNumericInput(session, "t0", value = -0.20)  # Q3 t0
+        updateNumericInput(session, "nat_mort", value = 0.23)  # M = K
       }
     }
-    # Blue Catfish growth parameters (literature-based estimates, larger species)
+    # Blue Catfish growth parameters (FishBase quartile-based)
     else if (input$species == "blue_catfish") {
       if (input$growth_preset == "slow") {
-        updateNumericInput(session, "linf", value = 800)  # Slower growing populations
-        updateNumericInput(session, "vbk", value = 0.10)
-        updateNumericInput(session, "t0", value = -1.0)
-        updateNumericInput(session, "nat_mort", value = 0.10)  # M = K
+        updateNumericInput(session, "linf", value = 1396)  # Q3 Linf
+        updateNumericInput(session, "vbk", value = 0.051)  # Q1 K
+        updateNumericInput(session, "t0", value = -1.52)  # Q1 t0
+        updateNumericInput(session, "nat_mort", value = 0.051)  # M = K
       } else if (input$growth_preset == "moderate") {
-        updateNumericInput(session, "linf", value = 900)  # Typical growth
-        updateNumericInput(session, "vbk", value = 0.15)
-        updateNumericInput(session, "t0", value = -1.2)
-        updateNumericInput(session, "nat_mort", value = 0.15)  # M = K
+        updateNumericInput(session, "linf", value = 1300)  # Q2 Linf
+        updateNumericInput(session, "vbk", value = 0.079)  # Q2 K
+        updateNumericInput(session, "t0", value = -1.30)  # Q2 t0
+        updateNumericInput(session, "nat_mort", value = 0.079)  # M = K
       } else if (input$growth_preset == "fast") {
-        updateNumericInput(session, "linf", value = 1000)  # Fast growing populations
-        updateNumericInput(session, "vbk", value = 0.20)
-        updateNumericInput(session, "t0", value = -1.5)
-        updateNumericInput(session, "nat_mort", value = 0.20)  # M = K
+        updateNumericInput(session, "linf", value = 1060)  # Q1 Linf
+        updateNumericInput(session, "vbk", value = 0.095)  # Q3 K
+        updateNumericInput(session, "t0", value = -1.01)  # Q3 t0
+        updateNumericInput(session, "nat_mort", value = 0.095)  # M = K
       }
     }
     # If "custom" is selected, don't update anything - user will enter their own values
