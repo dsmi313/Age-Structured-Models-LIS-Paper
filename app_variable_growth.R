@@ -811,12 +811,18 @@ server <- function(input, output, session) {
             # Calculate spawning stock biomass from PREVIOUS year
             SSB_t <- sum(N[i-1, ] * Fec_bins)
 
+            # Prevent negative SSB
+            SSB_t <- max(0, SSB_t)
+
             # Beverton-Holt recruitment with steepness parameterization
             # R = (4*h*R0*SSB) / (SSB0*(1-h) + (5*h-1)*SSB)
             R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
 
+            # Ensure positive recruitment, minimum 1 recruit
+            R_BH <- max(1, R_BH)
+
             # Add stochastic noise
-            Rcapacity[i] <- R_BH * rlnorm(1, 0, sd = sigmaR)
+            Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
           }
 
           # Apply survival to previous year's population
@@ -833,8 +839,8 @@ server <- function(input, output, session) {
 
           Yield[i] <- sum(Wt_bins * Vulharv_bins * N[i, ]) * U
           SPRt[i] <- sum(N[i, ] * Fec_bins) / SPR_denom
-          YPR[i] <- Yield[i] / Rcapacity[i]
-          Prop[i] <- sum(trophyvul_bins * N[i, ]) / sum(N[i, ])
+          YPR[i] <- Yield[i] / max(1, Rcapacity[i])  # Prevent division by zero
+          Prop[i] <- sum(trophyvul_bins * N[i, ]) / max(1, sum(N[i, ]))  # Prevent division by zero
         }
 
         # Store results (last 50 years)
@@ -1526,11 +1532,17 @@ server <- function(input, output, session) {
               # Calculate spawning stock biomass from PREVIOUS year
               SSB_t <- sum(N[i-1, ] * Fec_bins)
 
+              # Prevent negative SSB
+              SSB_t <- max(0, SSB_t)
+
               # Beverton-Holt recruitment with steepness parameterization
               R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
 
+              # Ensure positive recruitment, minimum 1 recruit
+              R_BH <- max(1, R_BH)
+
               # Add stochastic noise
-              Rcapacity[i] <- R_BH * rlnorm(1, 0, sd = sigmaR)
+              Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
             }
 
             # Apply FISHED survival (includes fishing mortality)
@@ -1545,9 +1557,9 @@ server <- function(input, output, session) {
             # Calculate metrics
             harvest_weight <- sum(Wt_harvest_bins * N[i, ])
             fecundity_now <- sum(Fec_bins * N[i, ])
-            abundance_now <- sum(N[i, ])
+            abundance_now <- max(1, sum(N[i, ]))  # Prevent division by zero
 
-            YPR[i] <- (harvest_weight * U_test) / Rcapacity[i]
+            YPR[i] <- (harvest_weight * U_test) / max(1, Rcapacity[i])  # Prevent division by zero
             SPRt[i] <- fecundity_now / SPR_denom
             Prop[i] <- sum(trophyvul_bins * N[i, ]) / abundance_now
           }
