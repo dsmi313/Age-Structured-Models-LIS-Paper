@@ -1306,89 +1306,122 @@ server <- function(input, output, session) {
       HarvlimSD <- Harvlim * 0.01
 
       # ========================================================================
-      # OPTIMIZATION 1: Pre-compute ALL age-invariant calculations ONCE
-      # (These don't depend on U or simulation index k)
+      # LENGTH-STRUCTURED YIELD CURVES (with growth variability and optional DDR)
       # ========================================================================
 
-      Age <- seq(1, Amax)
+      # Define length bins (10mm bins) - same as main simulation
+      bin_width <- 10
+      max_length <- ceiling(growth_params$Linf * 1.2)
+      length_bins <- seq(0, max_length, by = bin_width)
+      L_bins <- length(length_bins) - 1
+      bin_midpoints <- (length_bins[-1] + length_bins[-(L_bins+1)]) / 2
 
-      # Natural survival
-      S <- exp(-Nat_mort)^(Age - 1)
-      So <- exp(-Nat_mort)
+      # Get growth CV
+      growth_cv <- input$growth_cv
+      if(growth_cv == 0) growth_cv <- 0.001
 
-      # Growth: length and weight at age
-      TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
-      Wt <- (alfa * TL^bet) / 1000
-
-      # Fecundity with logistic maturity ogive
+      # Pre-compute length-specific variables for each bin
+      Wt_bins <- (alfa * bin_midpoints^bet) / 1000
       Wmat <- (alfa * input$mat_size^bet) / 1000
-      maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-      Fec <- Wt * maturity_ogive
+      maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
+      Fec_bins <- Wt_bins * maturity_ogive_bins
+      Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
 
-      # Capture vulnerability
-      Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
-
-      # Harvest vulnerability (depends on regulation type - mutually exclusive)
+      # Harvest vulnerability by length (depends on regulation type)
       if(input$enable_slot) {
-        # SLOT LIMIT: harvest or protect within a size range
         Slot_upper <- input$slot_upper
         Slot_upperSD <- 0.01
         HarvlimSD_slot <- 0.01
-
-        # Effective minimum is the LARGER of Harvlim or Capsize
-        # (can't harvest what you can't catch!)
         Effective_min <- max(Harvlim, Capsize)
 
-        Vulharv_above_min <- 1 / (1 + exp(-(TL - Effective_min) / HarvlimSD_slot))
-        Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
+        Vulharv_above_min <- 1 / (1 + exp(-(bin_midpoints - Effective_min) / HarvlimSD_slot))
+        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Slot_upper) / Slot_upperSD))
 
         if(input$slot_type == "traditional") {
-          Vulharv <- Vulharv_above_min * Vulharv_below_max
+          Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
         } else {
-          # Protective slot: PROTECT within slot (min to max)
-          # Multiply by Vulcap to ensure fish below capture size can't be harvested
-          Vulharv <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap
+          Vulharv_bins <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap_bins
         }
       } else if(input$enable_max_limit) {
-        # MAXIMUM LENGTH LIMIT: protect all fish above max size
-        # Minimum is automatically set to capture size (can't harvest what you can't catch!)
         Max_harvest_size <- input$max_harvest_size
         Max_harvestSD <- 0.01
-
-        # Use Capsize as the effective minimum (fish below capture size can't be harvested)
-        Vulharv_above_capture <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
-        Vulharv_below_max <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
-
-        # Harvest window: from capture size to max size
-        Vulharv <- Vulharv_above_capture * Vulharv_below_max
+        Vulharv_above_capture <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
+        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Max_harvest_size) / Max_harvestSD))
+        Vulharv_bins <- Vulharv_above_capture * Vulharv_below_max
       } else {
-        # STANDARD MINIMUM LENGTH LIMIT: protect fish below minimum size
-        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+        Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
       }
 
-      # Trophy vulnerability
-      trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+      # Trophy vulnerability by length
+      trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
 
-      # SPR denominator (unfished spawning potential per recruit)
-      SPR_denom <- sum((Ro * S) * Fec)
-
-      # Pre-compute weight-harvest product (used in YPR calculation)
-      Wt_harvest <- Wt * Vulharv
+      # Natural mortality
+      S_annual <- exp(-Nat_mort)
+      Unfished_survival_bins <- rep(S_annual, L_bins)
 
       # Convert CV to lognormal sigma
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
 
-      # ========================================================================
-      # OPTIMIZATION 2: Pre-generate ALL recruitment draws at once
-      # ========================================================================
+      # Build growth transition matrix (same as main simulation)
+      Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
 
+      for(i in 1:L_bins) {
+        current_length <- bin_midpoints[i]
+        K <- growth_params$vbk
+        Linf <- growth_params$Linf
+
+        # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
+        growth_increment <- (Linf - current_length) * (1 - exp(-K))
+        growth_increment <- max(0.1, growth_increment)  # Ensure positive
+        growth_sd <- max(0.5, growth_increment * growth_cv)  # Minimum SD
+
+        # For fish at or above Linf, minimal growth with small SD
+        if(current_length >= Linf * 0.99) {
+          growth_increment <- 0.1
+          growth_sd <- 0.5
+        }
+
+        # Distribute probability across bins
+        for(j in 1:L_bins) {
+          bin_lower <- length_bins[j]
+          bin_upper <- length_bins[j+1]
+          expected_length <- current_length + growth_increment
+          prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
+          Growth_matrix[i, j] <- prob
+        }
+
+        # Normalize row to sum to 1
+        row_sum <- sum(Growth_matrix[i, ])
+        if(row_sum > 0) {
+          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
+        } else {
+          Growth_matrix[i, i] <- 1.0  # Stay in current bin if no growth
+        }
+      }
+
+      # Create recruitment distribution across length bins
+      recruit_dist <- numeric(L_bins)
+      recruit_length_mean <- growth_params$vbk * (growth_params$Linf - recruit_size)
+      recruit_length_sd <- recruit_length_mean * 0.15
+
+      for(i in 1:L_bins) {
+        bin_lower <- length_bins[i]
+        bin_upper <- length_bins[i+1]
+        prob <- pnorm(bin_upper, recruit_size, recruit_length_sd) - pnorm(bin_lower, recruit_size, recruit_length_sd)
+        recruit_dist[i] <- prob
+      }
+
+      # Normalize recruitment distribution
+      recruit_dist <- recruit_dist / sum(recruit_dist)
+      if(any(is.na(recruit_dist)) || sum(recruit_dist) == 0) {
+        # Fallback: find closest bin to recruit size
+        closest_bin <- which.min(abs(bin_midpoints - recruit_size))
+        recruit_dist <- rep(0, L_bins)
+        recruit_dist[closest_bin] <- 1.0
+      }
+
+      # Get number of simulations
       nsim <- input$yield_curve_nsim
-      # Generate all recruitment values: Ymax rows x nsim columns
-      Rmat <- matrix(
-        Ro * rlnorm(Ymax * nsim, 0, sd = sigmaR),
-        nrow = Ymax,
-        ncol = nsim
-      )
 
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.05)
@@ -1399,52 +1432,91 @@ server <- function(input, output, session) {
 
         U_test <- U_values[u_idx]
 
-        # Pre-compute mortality vector for this exploitation rate
-        mort_vec <- So * (1 - (Vulcap - Vulharv) * U_test * DisMort) * (1 - Vulharv * U_test)
+        # Fishing mortality and survival by length bin (for this U)
+        F_bins <- Vulharv_bins * U_test
+        Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U_test * DisMort
+        Survival_bins <- S_annual * (1 - F_bins) * (1 - Release_mort_bins)
 
-        # ========================================================================
-        # OPTIMIZATION 3: Pre-create mortality matrix (avoid repeated indexing)
-        # ========================================================================
-        mort_mat <- matrix(mort_vec[1:(Amax-1)], nrow = Ymax, ncol = Amax - 1, byrow = TRUE)
+        # Harvest weight by length bin
+        Wt_harvest_bins <- Wt_bins * Vulharv_bins
 
         ypr_vals <- numeric(nsim)
         spr_vals <- numeric(nsim)
         prop_vals <- numeric(nsim)
 
         for(k in 1:nsim) {
-          # Initialize matrices for this simulation
-          N <- matrix(NA, Ymax, Amax)
+          # Initialize length-structured population matrix
+          N <- matrix(0, nrow = Ymax, ncol = L_bins)
           YPR <- rep(NA, Ymax)
           SPRt <- rep(NA, Ymax)
           Prop <- rep(NA, Ymax)
 
-          # Set initial population structure (unfished)
-          N[1, 1] <- 10000
-          N[1, ] <- Ro * S
+          # Build UNFISHED equilibrium over first 20 years (NO fishing mortality)
+          N[1, ] <- Ro * recruit_dist
 
-          # Use pre-generated recruitment for this simulation
-          Rcapacity <- Rmat[, k]
+          for(init_year in 2:min(20, Ymax)) {
+            # Apply UNFISHED survival (natural mortality only, NO fishing)
+            N_survive <- N[init_year-1, ] * Unfished_survival_bins
 
-          # Vectorized age progression loop
-          for(i in 2:Ymax) {
-            # Set recruitment for this year
-            N[i, 1] <- Rcapacity[i - 1]
+            # Apply growth (move to new length bins)
+            N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
 
-            # Vectorized age progression with pre-computed mortality matrix
-            N[i, 2:Amax] <- N[i-1, 1:(Amax-1)] * mort_mat[i, ]
+            # Add deterministic recruitment (no stochasticity in unfished equilibrium)
+            N[init_year, ] <- N[init_year, ] + Ro * recruit_dist
+          }
 
-            # ========================================================================
-            # OPTIMIZATION 4: Minimize repeated sum() calls - cache intermediate results
-            # ========================================================================
-            N_i <- N[i, ]  # Local copy is much faster
+          # Pre-compute SPR denominator (unfished spawning potential at equilibrium)
+          SPR_denom <- sum(N[min(20, Ymax), ] * Fec_bins)
 
-            harvest_weight <- sum(Wt_harvest * N_i)
-            fecundity_now <- sum(Fec * N_i)
-            abundance_now <- sum(N_i)
+          # Compute unfished SSB0 (for density-dependent recruitment if enabled)
+          SSB0 <- sum(N[min(20, Ymax), ] * Fec_bins)
 
-            YPR[i] <- (harvest_weight * U_test) / N_i[1]
+          # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
+          if(!input$enable_ddr) {
+            # Traditional per-recruit: constant mean recruitment with noise
+            Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+          } else {
+            # Will be calculated dynamically inside loop based on SSB
+            Rcapacity <- rep(NA, Ymax)
+          }
+
+          # Get steepness if DDR is enabled
+          h <- ifelse(input$enable_ddr, input$steepness, 0.7)
+
+          # Start main simulation after equilibrium period
+          start_year <- min(21, Ymax)
+
+          # Main simulation loop with FISHING mortality
+          for(i in start_year:Ymax) {
+            # If DDR enabled, calculate recruitment from previous year's SSB
+            if(input$enable_ddr && i > start_year) {
+              # Calculate spawning stock biomass from PREVIOUS year
+              SSB_t <- sum(N[i-1, ] * Fec_bins)
+
+              # Beverton-Holt recruitment with steepness parameterization
+              R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
+
+              # Add stochastic noise
+              Rcapacity[i] <- R_BH * rlnorm(1, 0, sd = sigmaR)
+            }
+
+            # Apply FISHED survival (includes fishing mortality)
+            N_survive <- N[i-1, ] * Survival_bins
+
+            # Apply growth (move to new length bins)
+            N[i, ] <- as.vector(N_survive %*% Growth_matrix)
+
+            # Add recruitment
+            N[i, ] <- N[i, ] + Rcapacity[i] * recruit_dist
+
+            # Calculate metrics
+            harvest_weight <- sum(Wt_harvest_bins * N[i, ])
+            fecundity_now <- sum(Fec_bins * N[i, ])
+            abundance_now <- sum(N[i, ])
+
+            YPR[i] <- (harvest_weight * U_test) / Rcapacity[i]
             SPRt[i] <- fecundity_now / SPR_denom
-            Prop[i] <- sum(trophyvul * N_i) / abundance_now
+            Prop[i] <- sum(trophyvul_bins * N[i, ]) / abundance_now
           }
 
           ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
