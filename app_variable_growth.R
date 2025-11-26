@@ -1438,24 +1438,24 @@ server <- function(input, output, session) {
         }
       }
 
-      # Create recruitment distribution across length bins
-      recruit_dist <- numeric(L_bins)
-      recruit_length_mean <- growth_params$vbk * (growth_params$Linf - recruit_size)
-      recruit_length_sd <- recruit_length_mean * 0.15
+      # Calculate mean recruitment length (age-1) and its distribution
+      age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
+      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
 
-      for(i in 1:L_bins) {
-        bin_lower <- length_bins[i]
-        bin_upper <- length_bins[i+1]
-        prob <- pnorm(bin_upper, recruit_size, recruit_length_sd) - pnorm(bin_lower, recruit_size, recruit_length_sd)
-        recruit_dist[i] <- prob
+      # Create recruitment length distribution (which bins do age-1 fish go into?)
+      recruit_dist <- rep(0, L_bins)
+      for(j in 1:L_bins) {
+        bin_lower <- length_bins[j]
+        bin_upper <- length_bins[j+1]
+        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
+        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
       }
-
-      # Normalize recruitment distribution
-      recruit_dist <- recruit_dist / sum(recruit_dist)
-      if(any(is.na(recruit_dist)) || sum(recruit_dist) == 0) {
-        # Fallback: find closest bin to recruit size
-        closest_bin <- which.min(abs(bin_midpoints - recruit_size))
-        recruit_dist <- rep(0, L_bins)
+      # Normalize and handle edge case of all zeros
+      if(sum(recruit_dist) > 0) {
+        recruit_dist <- recruit_dist / sum(recruit_dist)
+      } else {
+        # Fallback: put all recruitment in the bin closest to age1_mean_length
+        closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
         recruit_dist[closest_bin] <- 1.0
       }
 
