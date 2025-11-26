@@ -205,7 +205,8 @@ ui <- fluidPage(
                           "Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished)."),
                  br(),
                  sliderInput("yield_curve_nsim", "Number of Simulations per Point:",
-                             min = 1, max = 5000, value = 2000, step = 1),
+                             min = 10, max = 500, value = 50, step = 10),
+                 helpText(tags$small(tags$em("Higher values = smoother curves but slower. 50-100 recommended."))),
                  actionButton("run_yield_curve", "Generate Yield Curve", class = "btn-primary"),
                  br(),
                  br(),
@@ -1462,11 +1463,28 @@ server <- function(input, output, session) {
       # Get number of simulations
       nsim <- input$yield_curve_nsim
 
-      # Test exploitation rates from 0 to 1
-      U_values <- seq(0, 1, by = 0.05)
-      curve_results <- data.frame()
+      # Use shorter simulation for yield curves (faster, equilibrium reached by year 40)
+      Ymax_yield <- 60
 
-      for(u_idx in seq_along(U_values)) {
+      # Test exploitation rates from 0 to 1
+      U_values <- seq(0, 1, by = 0.1)  # Reduced resolution for speed (11 points instead of 21)
+      n_points <- length(U_values)
+
+      # Pre-allocate results data frame for speed (avoid rbind in loop)
+      curve_results <- data.frame(
+        U = U_values,
+        YPR_mean = numeric(n_points),
+        YPR_sd = numeric(n_points),
+        YPR_n = integer(n_points),
+        SPR_mean = numeric(n_points),
+        SPR_sd = numeric(n_points),
+        SPR_n = integer(n_points),
+        Prop_mean = numeric(n_points),
+        Prop_sd = numeric(n_points),
+        Prop_n = integer(n_points)
+      )
+
+      for(u_idx in 1:n_points) {
         incProgress(1/length(U_values), detail = paste("U =", round(U_values[u_idx], 2)))
 
         U_test <- U_values[u_idx]
@@ -1485,15 +1503,15 @@ server <- function(input, output, session) {
 
         for(k in 1:nsim) {
           # Initialize length-structured population matrix
-          N <- matrix(0, nrow = Ymax, ncol = L_bins)
-          YPR <- rep(NA, Ymax)
-          SPRt <- rep(NA, Ymax)
-          Prop <- rep(NA, Ymax)
+          N <- matrix(0, nrow = Ymax_yield, ncol = L_bins)
+          YPR <- rep(NA, Ymax_yield)
+          SPRt <- rep(NA, Ymax_yield)
+          Prop <- rep(NA, Ymax_yield)
 
           # Build UNFISHED equilibrium over first 20 years (NO fishing mortality)
           N[1, ] <- Ro * recruit_dist
 
-          for(init_year in 2:min(20, Ymax)) {
+          for(init_year in 2:min(20, Ymax_yield)) {
             # Apply UNFISHED survival (natural mortality only, NO fishing)
             N_survive <- N[init_year-1, ] * Unfished_survival_bins
 
@@ -1505,28 +1523,28 @@ server <- function(input, output, session) {
           }
 
           # Pre-compute SPR denominator (unfished spawning potential at equilibrium)
-          SPR_denom <- sum(N[min(20, Ymax), ] * Fec_bins)
+          SPR_denom <- sum(N[min(20, Ymax_yield), ] * Fec_bins)
 
           # Compute unfished SSB0 (for density-dependent recruitment if enabled)
-          SSB0 <- sum(N[min(20, Ymax), ] * Fec_bins)
+          SSB0 <- sum(N[min(20, Ymax_yield), ] * Fec_bins)
 
           # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
           if(isTRUE(input$enable_ddr)) {
             # Will be calculated dynamically inside loop based on SSB
-            Rcapacity <- rep(NA, Ymax)
+            Rcapacity <- rep(NA, Ymax_yield)
           } else {
             # Traditional per-recruit: constant mean recruitment with noise
-            Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+            Rcapacity <- Ro * rlnorm(Ymax_yield, 0, sd = sigmaR)
           }
 
           # Get steepness if DDR is enabled
           h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
           # Start main simulation after equilibrium period
-          start_year <- min(21, Ymax)
+          start_year <- min(21, Ymax_yield)
 
           # Main simulation loop with FISHING mortality
-          for(i in start_year:Ymax) {
+          for(i in start_year:Ymax_yield) {
             # If DDR enabled, calculate recruitment from previous year's SSB
             if(isTRUE(input$enable_ddr)) {
               # Calculate spawning stock biomass from PREVIOUS year
@@ -1564,23 +1582,21 @@ server <- function(input, output, session) {
             Prop[i] <- sum(trophyvul_bins * N[i, ]) / abundance_now
           }
 
-          ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
-          spr_vals[k] <- mean(SPRt[50:Ymax], na.rm = TRUE)
-          prop_vals[k] <- mean(Prop[50:Ymax], na.rm = TRUE)
+          ypr_vals[k] <- mean(YPR[50:Ymax_yield], na.rm = TRUE)
+          spr_vals[k] <- mean(SPRt[50:Ymax_yield], na.rm = TRUE)
+          prop_vals[k] <- mean(Prop[50:Ymax_yield], na.rm = TRUE)
         }
 
-        curve_results <- rbind(curve_results, data.frame(
-          U = U_test,
-          YPR_mean = mean(ypr_vals, na.rm = TRUE),
-          YPR_sd = sd(ypr_vals, na.rm = TRUE),
-          YPR_n = nsim,
-          SPR_mean = mean(spr_vals, na.rm = TRUE),
-          SPR_sd = sd(spr_vals, na.rm = TRUE),
-          SPR_n = nsim,
-          Prop_mean = mean(prop_vals, na.rm = TRUE),
-          Prop_sd = sd(prop_vals, na.rm = TRUE),
-          Prop_n = nsim
-        ))
+        # Store results in pre-allocated data frame (much faster than rbind)
+        curve_results$YPR_mean[u_idx] <- mean(ypr_vals, na.rm = TRUE)
+        curve_results$YPR_sd[u_idx] <- sd(ypr_vals, na.rm = TRUE)
+        curve_results$YPR_n[u_idx] <- nsim
+        curve_results$SPR_mean[u_idx] <- mean(spr_vals, na.rm = TRUE)
+        curve_results$SPR_sd[u_idx] <- sd(spr_vals, na.rm = TRUE)
+        curve_results$SPR_n[u_idx] <- nsim
+        curve_results$Prop_mean[u_idx] <- mean(prop_vals, na.rm = TRUE)
+        curve_results$Prop_sd[u_idx] <- sd(prop_vals, na.rm = TRUE)
+        curve_results$Prop_n[u_idx] <- nsim
       }
 
       yield_curve_data(curve_results)
