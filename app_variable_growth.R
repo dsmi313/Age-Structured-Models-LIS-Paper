@@ -1525,7 +1525,11 @@ server <- function(input, output, session) {
         SPR_n = integer(n_points),
         Prop_mean = numeric(n_points),
         Prop_sd = numeric(n_points),
-        Prop_n = integer(n_points)
+        Prop_n = integer(n_points),
+        Recruit_mean = numeric(n_points),
+        Recruit_sd = numeric(n_points),
+        TotalYield_mean = numeric(n_points),
+        TotalYield_sd = numeric(n_points)
       )
 
       for(u_idx in 1:n_points) {
@@ -1544,6 +1548,7 @@ server <- function(input, output, session) {
         ypr_vals <- numeric(nsim)
         spr_vals <- numeric(nsim)
         prop_vals <- numeric(nsim)
+        recruit_vals <- numeric(nsim)
 
         for(k in 1:nsim) {
           # Initialize length-structured population matrix
@@ -1629,6 +1634,7 @@ server <- function(input, output, session) {
           ypr_vals[k] <- mean(YPR[40:Ymax_yield], na.rm = TRUE)
           spr_vals[k] <- mean(SPRt[40:Ymax_yield], na.rm = TRUE)
           prop_vals[k] <- mean(Prop[40:Ymax_yield], na.rm = TRUE)
+          recruit_vals[k] <- mean(Rcapacity[40:Ymax_yield], na.rm = TRUE)
         }
 
         # Store results in pre-allocated data frame (much faster than rbind)
@@ -1641,13 +1647,70 @@ server <- function(input, output, session) {
         curve_results$Prop_mean[u_idx] <- mean(prop_vals, na.rm = TRUE)
         curve_results$Prop_sd[u_idx] <- sd(prop_vals, na.rm = TRUE)
         curve_results$Prop_n[u_idx] <- nsim
+        curve_results$Recruit_mean[u_idx] <- mean(recruit_vals, na.rm = TRUE)
+        curve_results$Recruit_sd[u_idx] <- sd(recruit_vals, na.rm = TRUE)
+
+        # Calculate Total Yield = YPR × Recruitment
+        total_yield_vals <- ypr_vals * recruit_vals
+        curve_results$TotalYield_mean[u_idx] <- mean(total_yield_vals, na.rm = TRUE)
+        curve_results$TotalYield_sd[u_idx] <- sd(total_yield_vals, na.rm = TRUE)
       }
 
       yield_curve_data(curve_results)
     })
   })
 
-  # Yield curve plot
+  # MSY plot (Total Yield and Recruitment)
+  output$msy_plot <- renderPlotly({
+    curve_data <- yield_curve_data()
+    req(!is.null(curve_data))
+
+    # Find MSY (maximum total yield) and corresponding U
+    msy_idx <- which.max(curve_data$TotalYield_mean)
+    msy_value <- curve_data$TotalYield_mean[msy_idx]
+    u_msy <- curve_data$U[msy_idx] * 100
+
+    # Calculate 95% prediction intervals
+    curve_data$TotalYield_lower <- curve_data$TotalYield_mean - 1.96 * curve_data$TotalYield_sd
+    curve_data$TotalYield_upper <- curve_data$TotalYield_mean + 1.96 * curve_data$TotalYield_sd
+    curve_data$Recruit_lower <- curve_data$Recruit_mean - 1.96 * curve_data$Recruit_sd
+    curve_data$Recruit_upper <- curve_data$Recruit_mean + 1.96 * curve_data$Recruit_sd
+
+    # Create dual-axis plot using plotly
+    p <- plot_ly(curve_data) %>%
+      # Total Yield (left y-axis)
+      add_ribbons(x = ~U * 100, ymin = ~TotalYield_lower, ymax = ~TotalYield_upper,
+                  fillcolor = "rgba(70, 130, 180, 0.2)", line = list(color = "transparent"),
+                  showlegend = FALSE, name = "Total Yield 95% PI") %>%
+      add_trace(x = ~U * 100, y = ~TotalYield_mean, type = "scatter", mode = "lines+markers",
+                line = list(color = "steelblue", width = 3), marker = list(size = 6),
+                name = "Total Yield (kg)", yaxis = "y1") %>%
+      # MSY marker
+      add_trace(x = u_msy, y = msy_value, type = "scatter", mode = "markers",
+                marker = list(color = "red", size = 12, symbol = "star"),
+                name = paste0("MSY = ", round(msy_value, 1), " kg at U = ", round(u_msy, 1), "%"),
+                yaxis = "y1") %>%
+      # Recruitment (right y-axis)
+      add_ribbons(x = ~U * 100, ymin = ~Recruit_lower, ymax = ~Recruit_upper,
+                  fillcolor = "rgba(34, 139, 34, 0.2)", line = list(color = "transparent"),
+                  showlegend = FALSE, name = "Recruitment 95% PI", yaxis = "y2") %>%
+      add_trace(x = ~U * 100, y = ~Recruit_mean, type = "scatter", mode = "lines+markers",
+                line = list(color = "forestgreen", width = 3, dash = "dash"),
+                marker = list(size = 6), name = "Equilibrium Recruitment", yaxis = "y2") %>%
+      # Layout with dual y-axes
+      layout(
+        title = "Maximum Sustainable Yield (MSY) Analysis",
+        xaxis = list(title = "Exploitation Rate (%)"),
+        yaxis = list(title = "Total Yield (kg)", side = "left", showgrid = FALSE),
+        yaxis2 = list(title = "Equilibrium Recruitment (number)", side = "right", overlaying = "y", showgrid = FALSE),
+        hovermode = "x unified",
+        legend = list(x = 0.7, y = 0.95)
+      )
+
+    p
+  })
+
+  # Yield curve plot (YPR)
   output$yield_curve_plot <- renderPlotly({
     curve_data <- yield_curve_data()
     req(!is.null(curve_data))
