@@ -331,7 +331,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "t0", value = 0.04)
       updateNumericInput(session, "nat_mort", value = 0.35)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: CV>0.5)
-      updateNumericInput(session, "amax", value = 15)  # Largemouth bass can live 10-16 years
+      updateNumericInput(session, "amax", value = 12)  # Largemouth bass maximum age
       showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
 
     } else if (input$species == "smb") {
@@ -346,7 +346,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "t0", value = -0.3)
       updateNumericInput(session, "nat_mort", value = 0.25)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.7)  # Moderate-high recruitment variability (literature: CV=52-80%)
-      updateNumericInput(session, "amax", value = 15)  # Smallmouth bass can live 10-18 years
+      updateNumericInput(session, "amax", value = 12)  # Smallmouth bass maximum age
       showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
 
     } else if (input$species == "channel_catfish") {
