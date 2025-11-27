@@ -296,7 +296,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.374)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
       updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
-      showNotification("Loaded White Crappie parameters (LIS paper)", type = "message")
+      showNotification("Loaded White Crappie parameters (Smith et al. 2025)", type = "message")
 
     } else if (input$species == "black_crappie") {
       updateNumericInput(session, "wl_a", value = 1.10e-5)  # FishBase median
