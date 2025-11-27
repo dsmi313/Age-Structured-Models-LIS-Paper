@@ -205,7 +205,7 @@ ui <- fluidPage(
                           "Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished)."),
                  br(),
                  sliderInput("yield_curve_nsim", "Number of Simulations per Point:",
-                             min = 1000, max = 10000, value = 1000, step = 1000, ticks = FALSE),
+                             min = 500, max = 10000, value = 1000, step = 500, ticks = FALSE),
                  helpText(tags$small(tags$em("Higher values = smoother curves but slower. 1000-2000 recommended for publication quality."))),
                  actionButton("run_yield_curve", "Generate Yield Curve", class = "btn-primary"),
                  br(),
