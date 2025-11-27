@@ -351,8 +351,8 @@ server <- function(input, output, session) {
 
     } else if (input$species == "channel_catfish") {
       # Channel catfish parameters (FishBase/literature/Gabelhouse 1984)
-      # W-L from NLLS: W(g) = 0.00522 * L(cm)^3.2293, converted to kg and mm
-      updateNumericInput(session, "wl_a", value = 3.08e-9)
+      # W-L from NLLS: W(g) = 0.00522 * L(cm)^3.2293, converted to g and mm
+      updateNumericInput(session, "wl_a", value = 3.08e-6)
       updateNumericInput(session, "wl_b", value = 3.23)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (literature: female maturity)
       updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
@@ -367,8 +367,8 @@ server <- function(input, output, session) {
 
     } else if (input$species == "blue_catfish") {
       # Blue catfish parameters (FishBase/literature/Gabelhouse 1984)
-      # W-L from FishBase Bayesian: W(g) = 0.00525 * L(cm)^3.11, converted to kg and mm
-      updateNumericInput(session, "wl_a", value = 4.08e-9)
+      # W-L from FishBase Bayesian: W(g) = 0.00525 * L(cm)^3.11, converted to g and mm
+      updateNumericInput(session, "wl_a", value = 4.08e-6)
       updateNumericInput(session, "wl_b", value = 3.11)
       updateNumericInput(session, "mat_size", value = 350)  # ~14 inches (female maturity lower range, literature: 35-50cm)
       updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
