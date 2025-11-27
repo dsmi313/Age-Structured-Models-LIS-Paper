@@ -1089,8 +1089,8 @@ server <- function(input, output, session) {
       group_by(Age_int) %>%
       summarize(
         Abundance_median = sum(Abundance_median, na.rm = TRUE),
-        Abundance_q25 = sum(Abundance_q25, na.rm = TRUE),
-        Abundance_q75 = sum(Abundance_q75, na.rm = TRUE),
+        Abundance_lower = sum(Abundance_lower, na.rm = TRUE),
+        Abundance_upper = sum(Abundance_upper, na.rm = TRUE),
         .groups = "drop"
       ) %>%
       rename(Age = Age_int)
@@ -1102,18 +1102,18 @@ server <- function(input, output, session) {
       left_join(age_data, by = "Age") %>%
       mutate(
         Abundance_median = replace_na(Abundance_median, 0),
-        Abundance_q25 = replace_na(Abundance_q25, 0),
-        Abundance_q75 = replace_na(Abundance_q75, 0)
+        Abundance_lower = replace_na(Abundance_lower, 0),
+        Abundance_upper = replace_na(Abundance_upper, 0)
       )
 
     p <- ggplot(age_data, aes(x = Age)) +
-      geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
+      geom_ribbon(aes(ymin = Abundance_lower, ymax = Abundance_upper),
                   fill = "steelblue", alpha = 0.3) +
       geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, width = 0.8) +
       geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
       scale_x_continuous(breaks = 0:max_age) +
       labs(title = "Age Distribution at Equilibrium",
-           subtitle = "Bars show median abundance. Shaded area shows 25th-75th percentile range. Ages inferred from length using von Bertalanffy.",
+           subtitle = "Bars show median abundance. Shaded area shows 95% prediction interval (mean ± 1.96 × SD). Ages inferred from length using von Bertalanffy.",
            x = "Age (years)", y = "Abundance") +
       theme_minimal()
 
