@@ -1095,9 +1095,11 @@ server <- function(input, output, session) {
       ) %>%
       rename(Age = Age_int)
 
-    # Ensure all integer ages from 0 to max are represented
-    max_age <- max(age_data$Age, na.rm = TRUE)
-    all_ages <- data.frame(Age = 0:max_age)
+    # Determine the max age with meaningful abundance (filter out ages with near-zero abundance)
+    max_age <- max(age_data$Age[age_data$Abundance_median > 0.1], na.rm = TRUE)
+
+    # Ensure all integer ages from 1 to max are represented (no age-0 fish)
+    all_ages <- data.frame(Age = 1:max_age)
     age_data <- all_ages %>%
       left_join(age_data, by = "Age") %>%
       mutate(
@@ -1111,7 +1113,7 @@ server <- function(input, output, session) {
                   fill = "steelblue", alpha = 0.3) +
       geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, width = 0.8) +
       geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
-      scale_x_continuous(breaks = 0:max_age) +
+      scale_x_continuous(breaks = 1:max_age, limits = c(0.5, max_age + 0.5)) +
       labs(title = "Age Distribution at Equilibrium",
            subtitle = "Bars show median abundance. Shaded area shows 95% prediction interval (mean ± 1.96 × SD). Ages inferred from length using von Bertalanffy.",
            x = "Age (years)", y = "Abundance") +
