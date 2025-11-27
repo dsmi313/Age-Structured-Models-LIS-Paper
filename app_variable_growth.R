@@ -884,17 +884,21 @@ server <- function(input, output, session) {
 
       time_series_data(ts_data)
 
-      # Calculate median and quantiles for population structure across all simulations
+      # Calculate mean and 95% prediction intervals for population structure
       # Now using LENGTH BINS instead of age classes
       pop_data <- data.frame(
         Length = bin_midpoints,
         Weight = Wt_bins,
-        Abundance_median = apply(all_Abundance, 1, median, na.rm = TRUE),
-        Abundance_q25 = apply(all_Abundance, 1, quantile, probs = 0.25, na.rm = TRUE),
-        Abundance_q75 = apply(all_Abundance, 1, quantile, probs = 0.75, na.rm = TRUE),
+        Abundance_mean = rowMeans(all_Abundance, na.rm = TRUE),
+        Abundance_sd = apply(all_Abundance, 1, sd, na.rm = TRUE),
         VulCapture = Vulcap_bins,
         VulHarvest = Vulharv_bins
       )
+      # Calculate 95% prediction intervals: mean ± 1.96 × SD
+      pop_data$Abundance_lower <- pop_data$Abundance_mean - 1.96 * pop_data$Abundance_sd
+      pop_data$Abundance_upper <- pop_data$Abundance_mean + 1.96 * pop_data$Abundance_sd
+      pop_data$Abundance_lower <- pmax(0, pop_data$Abundance_lower)  # Can't be negative
+
       pop_structure_data(pop_data)
 
       sim_results(results)
@@ -1088,21 +1092,21 @@ server <- function(input, output, session) {
       group_by(Age_bin) %>%
       summarize(
         Age = mean(Age, na.rm = TRUE),
-        Abundance_median = sum(Abundance_median, na.rm = TRUE),
-        Abundance_q25 = sum(Abundance_q25, na.rm = TRUE),
-        Abundance_q75 = sum(Abundance_q75, na.rm = TRUE),
+        Abundance_mean = sum(Abundance_mean, na.rm = TRUE),
+        Abundance_lower = sum(Abundance_lower, na.rm = TRUE),
+        Abundance_upper = sum(Abundance_upper, na.rm = TRUE),
         .groups = "drop"
       ) %>%
       filter(!is.na(Age))
 
     p <- ggplot(age_data, aes(x = Age)) +
-      geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
+      geom_ribbon(aes(ymin = Abundance_lower, ymax = Abundance_upper),
                   fill = "steelblue", alpha = 0.3) +
-      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, width = 0.4) +
-      geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
+      geom_col(aes(y = Abundance_mean), fill = "steelblue", alpha = 0.7, width = 0.4) +
+      geom_line(aes(y = Abundance_mean), color = "darkblue", size = 1) +
       scale_x_continuous(breaks = 0:max_age) +
       labs(title = "Age Distribution at Equilibrium",
-           subtitle = "Shaded area shows 25th-75th percentile range. Ages inferred from length using von Bertalanffy.",
+           subtitle = "Shaded area shows 95% prediction interval (mean ± 1.96 × SD). Ages inferred from length using von Bertalanffy.",
            x = "Age (years)", y = "Abundance") +
       theme_minimal()
 
@@ -1159,15 +1163,15 @@ server <- function(input, output, session) {
 
     growth_cv <- input$growth_cv
 
-    # Add line and confidence intervals like population structure plot
+    # Add line and 95% prediction intervals
     p <- ggplot(pop_data, aes(x = Length)) +
-      geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
+      geom_ribbon(aes(ymin = Abundance_lower, ymax = Abundance_upper),
                   fill = "steelblue", alpha = 0.3) +
-      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, color = "black", width = 10) +
-      geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
+      geom_col(aes(y = Abundance_mean), fill = "steelblue", alpha = 0.7, color = "black", width = 10) +
+      geom_line(aes(y = Abundance_mean), color = "darkblue", size = 1) +
       scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
       labs(title = paste0("Length-Frequency Distribution (Equilibrium) - Growth CV = ", growth_cv),
-           subtitle = "Shaded area shows 25th-75th percentile range",
+           subtitle = "Shaded area shows 95% prediction interval (mean ± 1.96 × SD)",
            x = "Total Length (mm)", y = "Abundance") +
       theme_minimal()
 
