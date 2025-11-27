@@ -163,16 +163,16 @@ ui <- fluidPage(
 
         tabPanel("Population Structure",
                  br(),
-                 h4("Equilibrium Population Structure"),
-                 helpText("This plot shows the MEDIAN age distribution at equilibrium (final year of simulation) across all simulations.",
+                 h4("Age Distribution at Equilibrium"),
+                 helpText("Shows the number of fish in each age class at equilibrium. Ages are inferred from length using the von Bertalanffy growth equation.",
                           tags$br(),
-                          tags$strong("Why is age-1 always ~10,000?"), "The model uses lognormal recruitment with median = 10,000. While individual simulations vary widely (see shaded area), the median across many simulations is always ~10,000.",
+                          tags$strong("Shaded area:"), "Shows 25th-75th percentile range across simulations, representing uncertainty from recruitment variability and growth variation.",
                           tags$br(),
-                          tags$strong("Shaded area:"), "Shaded bands show where 95% of population outcomes fall due to stochastic recruitment variability (not uncertainty in the mean estimate)."),
+                          tags$strong("Why is age-1 always high?"), "The model uses median recruitment = 10,000. While individual simulations vary, the median across many simulations centers on 10,000."),
                  plotlyOutput("pop_structure", height = "500px"),
                  br(),
                  h4("Length-Frequency Distribution"),
-                 helpText("Histogram showing the distribution of fish lengths in the equilibrium population."),
+                 helpText("Shows the distribution of fish lengths in the equilibrium population. Bars show median abundance, shaded area shows 25th-75th percentile range."),
                  plotlyOutput("length_frequency", height = "400px"),
                  br(),
                  h4("Vulnerability by Length"),
@@ -1065,14 +1065,45 @@ server <- function(input, output, session) {
     req(pop_structure_data())
     pop_data <- pop_structure_data()
 
-    p <- ggplot(pop_data, aes(x = Length)) +
+    # Convert length bins to ages using inverse von Bertalanffy
+    # age = t0 - (1/K) * ln(1 - L/Linf)
+    growth_params <- get_growth_params()
+    K <- growth_params$vbk
+    Linf <- growth_params$Linf
+    t0 <- growth_params$t0
+
+    # Calculate age for each length bin
+    pop_data$Age <- t0 - (1/K) * log(pmax(0.01, 1 - pop_data$Length / Linf))
+    pop_data$Age <- pmax(0, pop_data$Age)  # Ensure non-negative ages
+
+    # Create age bins (0.5 year increments for smooth plotting)
+    max_age <- ceiling(max(pop_data$Age, na.rm = TRUE))
+    age_bins <- seq(0, max_age, by = 0.5)
+
+    # Aggregate abundance into age bins
+    pop_data$Age_bin <- cut(pop_data$Age, breaks = age_bins, labels = FALSE, include.lowest = TRUE)
+
+    # Sum abundance within each age bin
+    age_data <- pop_data %>%
+      group_by(Age_bin) %>%
+      summarize(
+        Age = mean(Age, na.rm = TRUE),
+        Abundance_median = sum(Abundance_median, na.rm = TRUE),
+        Abundance_q25 = sum(Abundance_q25, na.rm = TRUE),
+        Abundance_q75 = sum(Abundance_q75, na.rm = TRUE),
+        .groups = "drop"
+      ) %>%
+      filter(!is.na(Age))
+
+    p <- ggplot(age_data, aes(x = Age)) +
       geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
                   fill = "steelblue", alpha = 0.3) +
-      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.5, width = 10) +
+      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, width = 0.4) +
       geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
-      labs(title = "Population Structure by Length",
-           subtitle = "Shaded area shows 25th-75th percentile range. Peaks represent cohorts at equilibrium.",
-           x = "Total Length (mm)", y = "Abundance") +
+      scale_x_continuous(breaks = 0:max_age) +
+      labs(title = "Age Distribution at Equilibrium",
+           subtitle = "Shaded area shows 25th-75th percentile range. Ages inferred from length using von Bertalanffy.",
+           x = "Age (years)", y = "Abundance") +
       theme_minimal()
 
     ggplotly(p)
@@ -1128,11 +1159,15 @@ server <- function(input, output, session) {
 
     growth_cv <- input$growth_cv
 
-    # Population is already in length bins, so just plot directly!
-    p <- ggplot(pop_data, aes(x = Length, y = Abundance_median)) +
-      geom_col(fill = "steelblue", alpha = 0.7, color = "black", width = 10) +
+    # Add line and confidence intervals like population structure plot
+    p <- ggplot(pop_data, aes(x = Length)) +
+      geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
+                  fill = "steelblue", alpha = 0.3) +
+      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, color = "black", width = 10) +
+      geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
       scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
       labs(title = paste0("Length-Frequency Distribution (Equilibrium) - Growth CV = ", growth_cv),
+           subtitle = "Shaded area shows 25th-75th percentile range",
            x = "Total Length (mm)", y = "Abundance") +
       theme_minimal()
 
