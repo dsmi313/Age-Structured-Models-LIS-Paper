@@ -309,7 +309,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.19)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
       updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
-      showNotification("Loaded Black Crappie parameters (FishBase)", type = "message")
+      showNotification("Loaded Black Crappie parameters (FishBase median)", type = "message")
 
     } else if (input$species == "walleye") {
       # Weight-length from FishBase median
@@ -324,7 +324,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.215)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 1.1)  # Very high recruitment variability (literature: CV=112%)
       updateNumericInput(session, "amax", value = 15)  # Walleye can live 15-20 years
-      showNotification("Loaded Walleye parameters (Craig et al. 1995)", type = "message")
+      showNotification("Loaded Walleye parameters (FishBase median)", type = "message")
 
     } else if (input$species == "lmb") {
       # Weight-length from FishBase median
@@ -339,7 +339,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.35)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: CV>0.5)
       updateNumericInput(session, "amax", value = 12)  # Largemouth bass maximum age
-      showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
+      showNotification("Loaded Largemouth Bass parameters (FishBase median)", type = "message")
 
     } else if (input$species == "smb") {
       # Weight-length from FishBase median
@@ -354,7 +354,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.25)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.7)  # Moderate-high recruitment variability (literature: CV=52-80%)
       updateNumericInput(session, "amax", value = 12)  # Smallmouth bass maximum age
-      showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
+      showNotification("Loaded Smallmouth Bass parameters (FishBase median)", type = "message")
 
     } else if (input$species == "channel_catfish") {
       # Channel catfish parameters (FishBase median / Gabelhouse 1984)
@@ -369,7 +369,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.18)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
       updateNumericInput(session, "amax", value = 24)  # Channel catfish can live 20-24 years
-      showNotification("Loaded Channel Catfish parameters (literature/Gabelhouse 1984)", type = "message")
+      showNotification("Loaded Channel Catfish parameters (FishBase median)", type = "message")
 
     } else if (input$species == "blue_catfish") {
       # Blue catfish parameters (FishBase median / Gabelhouse 1984)
@@ -384,7 +384,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: σR=0.49, Hilling et al. 2025)
       updateNumericInput(session, "amax", value = 30)  # Blue catfish can live 25-30 years
-      showNotification("Loaded Blue Catfish parameters (literature/Gabelhouse 1984)", type = "message")
+      showNotification("Loaded Blue Catfish parameters (FishBase median)", type = "message")
     }
     # If custom, don't update anything
   })
