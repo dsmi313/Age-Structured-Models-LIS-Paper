@@ -166,9 +166,7 @@ ui <- fluidPage(
                  h4("Age Distribution at Equilibrium"),
                  helpText("Shows the number of fish in each age class at equilibrium. Ages are inferred from length using the von Bertalanffy growth equation.",
                           tags$br(),
-                          tags$strong("Shaded area:"), "Shows 95% prediction interval (mean ± 1.96 × SD) across simulations, representing uncertainty from recruitment variability and growth variation.",
-                          tags$br(),
-                          tags$strong("Why is age-1 always high?"), "The model uses median recruitment = 10,000. While individual simulations vary, the median across many simulations centers on 10,000."),
+                          tags$strong("Bars show mean abundance."), "Shaded area shows 95% prediction interval (mean ± 1.96 × SD) across simulations, representing uncertainty from recruitment variability and growth variation."),
                  plotlyOutput("pop_structure", height = "500px"),
                  br(),
                  h4("Length-Frequency Distribution"),
@@ -1086,7 +1084,7 @@ server <- function(input, output, session) {
     age_data <- pop_data %>%
       group_by(Age_int) %>%
       summarize(
-        Abundance_median = sum(Abundance_median, na.rm = TRUE),
+        Abundance_mean = sum(Abundance_mean, na.rm = TRUE),
         Abundance_lower = sum(Abundance_lower, na.rm = TRUE),
         Abundance_upper = sum(Abundance_upper, na.rm = TRUE),
         .groups = "drop"
@@ -1094,14 +1092,14 @@ server <- function(input, output, session) {
       rename(Age = Age_int)
 
     # Determine the max age with meaningful abundance (filter out ages with near-zero abundance)
-    max_age <- max(age_data$Age[age_data$Abundance_median > 0.1], na.rm = TRUE)
+    max_age <- max(age_data$Age[age_data$Abundance_mean > 0.1], na.rm = TRUE)
 
     # Ensure all integer ages from 1 to max are represented (no age-0 fish)
     all_ages <- data.frame(Age = 1:max_age)
     age_data <- all_ages %>%
       left_join(age_data, by = "Age") %>%
       mutate(
-        Abundance_median = replace_na(Abundance_median, 0),
+        Abundance_mean = replace_na(Abundance_mean, 0),
         Abundance_lower = replace_na(Abundance_lower, 0),
         Abundance_upper = replace_na(Abundance_upper, 0)
       )
@@ -1109,11 +1107,11 @@ server <- function(input, output, session) {
     p <- ggplot(age_data, aes(x = Age)) +
       geom_ribbon(aes(ymin = Abundance_lower, ymax = Abundance_upper),
                   fill = "steelblue", alpha = 0.3) +
-      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, width = 0.8) +
-      geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
+      geom_col(aes(y = Abundance_mean), fill = "steelblue", alpha = 0.7, width = 0.8) +
+      geom_line(aes(y = Abundance_mean), color = "darkblue", size = 1) +
       scale_x_continuous(breaks = 1:max_age, limits = c(0.5, max_age + 0.5)) +
       labs(title = "Age Distribution at Equilibrium",
-           subtitle = "Bars show median abundance. Shaded area shows 95% prediction interval (mean ± 1.96 × SD). Ages inferred from length using von Bertalanffy.",
+           subtitle = "Bars show mean abundance. Shaded area shows 95% prediction interval (mean ± 1.96 × SD). Ages inferred from length using von Bertalanffy.",
            x = "Age (years)", y = "Abundance") +
       theme_minimal()
 
