@@ -673,11 +673,41 @@ server <- function(input, output, session) {
         # Pre-compute SPR denominator (unfished spawning potential)
         SPR_denom <- sum(N[1, ] * Fec)
 
-        # Generate stochastic recruitment for this simulation
-        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+        # Compute unfished SSB0 (for DDR if enabled)
+        SSB0 <- sum(N[1, ] * Fec)
+
+        # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
+        if(isTRUE(input$enable_ddr)) {
+          # Will be calculated dynamically inside loop based on SSB
+          Rcapacity <- rep(NA, Ymax)
+        } else {
+          # Traditional per-recruit: constant mean recruitment with noise
+          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+        }
+
+        # Get steepness if DDR is enabled
+        h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
         # Vectorized age progression loop
         for(i in 2:Ymax) {
+          # If DDR enabled, calculate recruitment from previous year's SSB
+          if(isTRUE(input$enable_ddr)) {
+            # Calculate spawning stock biomass from PREVIOUS year
+            SSB_t <- sum(N[i-1, ] * Fec)
+
+            # Prevent negative SSB
+            SSB_t <- max(0, SSB_t)
+
+            # Beverton-Holt recruitment with steepness parameterization
+            R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
+
+            # Ensure positive recruitment, minimum 1 recruit
+            R_BH <- max(1, R_BH)
+
+            # Add stochastic noise
+            Rcapacity[i-1] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+          }
+
           # Set recruitment for this year
           N[i, 1] <- Rcapacity[i - 1]
 
@@ -1267,16 +1297,29 @@ server <- function(input, output, session) {
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
 
       # ========================================================================
-      # OPTIMIZATION 2: Pre-generate ALL recruitment draws at once
+      # OPTIMIZATION 2: Pre-generate ALL recruitment draws at once (unless DDR enabled)
       # ========================================================================
 
       nsim <- input$yield_curve_nsim
-      # Generate all recruitment values: Ymax rows x nsim columns
-      Rmat <- matrix(
-        Ro * rlnorm(Ymax * nsim, 0, sd = sigmaR),
-        nrow = Ymax,
-        ncol = nsim
-      )
+
+      # Compute unfished SSB0 (for DDR if enabled)
+      SSB0 <- sum((Ro * S) * Fec)
+
+      # Generate recruitment (conditional on DDR)
+      if(isTRUE(input$enable_ddr)) {
+        # DDR: Will be calculated dynamically inside loop
+        Rmat <- NULL  # Not pre-generated
+      } else {
+        # Traditional: Pre-generate all recruitment values
+        Rmat <- matrix(
+          Ro * rlnorm(Ymax * nsim, 0, sd = sigmaR),
+          nrow = Ymax,
+          ncol = nsim
+        )
+      }
+
+      # Get steepness if DDR is enabled
+      h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.05)
@@ -1310,11 +1353,35 @@ server <- function(input, output, session) {
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
 
-          # Use pre-generated recruitment for this simulation
-          Rcapacity <- Rmat[, k]
+          # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
+          if(isTRUE(input$enable_ddr)) {
+            # Will be calculated dynamically inside loop based on SSB
+            Rcapacity <- rep(NA, Ymax)
+          } else {
+            # Traditional per-recruit: use pre-generated recruitment
+            Rcapacity <- Rmat[, k]
+          }
 
           # Vectorized age progression loop
           for(i in 2:Ymax) {
+            # If DDR enabled, calculate recruitment from previous year's SSB
+            if(isTRUE(input$enable_ddr)) {
+              # Calculate spawning stock biomass from PREVIOUS year
+              SSB_t <- sum(N[i-1, ] * Fec)
+
+              # Prevent negative SSB
+              SSB_t <- max(0, SSB_t)
+
+              # Beverton-Holt recruitment with steepness parameterization
+              R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
+
+              # Ensure positive recruitment, minimum 1 recruit
+              R_BH <- max(1, R_BH)
+
+              # Add stochastic noise
+              Rcapacity[i-1] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+            }
+
             # Set recruitment for this year
             N[i, 1] <- Rcapacity[i - 1]
 
