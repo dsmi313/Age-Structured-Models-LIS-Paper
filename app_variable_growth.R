@@ -229,14 +229,15 @@ ui <- fluidPage(
                  br(),
                  h3("Length-Structured Population Model with Growth Variability"),
                  p("This Shiny app implements a length-structured population model with individual growth variability, originally developed for:"),
-                 p(em("Smith, D.S., Allen, M.S., and Miranda, L.E. 2025. Live-imaging sonar use in Texas crappie fisheries: Assessing population-level responses due to potential increases in exploitation. North American Journal of Fisheries Management. (in press)")),
+                 p(em("Smith, D.R., Bennett, D.L., Norman, J.D., Allen, M.S. 2025. Live-imaging sonar use in Texas crappie fisheries: Examining population-level responses due to potential increases in exploitation. Fisheries, vuae015. ",
+                   a(href = "https://doi.org/10.1093/fshmag/vuae015", "https://doi.org/10.1093/fshmag/vuae015"))),
                  br(),
                  h4("Multi-Species Capability"),
                  p("The model includes presets for multiple species with standardized parameters:"),
                  tags$ul(
                    tags$li(strong("White Crappie:"), "Empirical parameters from Smith et al. (2025)"),
                    tags$li(strong("Black Crappie:"), "FishBase median weight-length and growth parameters"),
-                   tags$li(strong("Walleye:"), "FishBase median weight-length parameters; growth from Craig et al. (1995)"),
+                   tags$li(strong("Walleye:"), "FishBase median parameters"),
                    tags$li(strong("Largemouth Bass:"), "FishBase median parameters"),
                    tags$li(strong("Smallmouth Bass:"), "FishBase median parameters"),
                    tags$li(strong("Channel Catfish:"), "FishBase median parameters"),
@@ -273,15 +274,13 @@ ui <- fluidPage(
                  br(),
                  h4("References"),
                  p(strong("Primary citation:")),
-                 p("Smith, D.S., Allen, M.S., and Miranda, L.E. 2025. Live-imaging sonar use in Texas crappie fisheries: Assessing population-level responses due to potential increases in exploitation. North American Journal of Fisheries Management. (in press)"),
+                 p("Smith, D.R., Bennett, D.L., Norman, J.D., Allen, M.S. 2025. Live-imaging sonar use in Texas crappie fisheries: Examining population-level responses due to potential increases in exploitation. Fisheries, vuae015. ",
+                   a(href = "https://doi.org/10.1093/fshmag/vuae015", "https://doi.org/10.1093/fshmag/vuae015")),
                  br(),
-                 p(strong("Additional references:")),
-                 p("Craig, J.F., et al. 1995. Percid Fishes: Systematics, Ecology, and Exploitation. Blackwell Science, Oxford, UK."),
+                 p(strong("Parameter sources:")),
                  p("Froese, R. and D. Pauly. Editors. 2024. FishBase. World Wide Web electronic publication. ",
                    a(href = "https://www.fishbase.org", "www.fishbase.org")),
-                 p("Gabelhouse, D.W. 1984. A length-categorization system to assess fish stocks. North American Journal of Fisheries Management 4:273-285."),
-                 p("Model structure similar to: Dotson, J.R., et al. 2009. Implications of Reduced Seasonal Fishing Effort on Bluegill Size Structure: A Long-Term Experimental Approach. North American Journal of Fisheries Management 29:1-13. ",
-                   a(href = "https://doi.org/10.1577/M08-137.1", "https://doi.org/10.1577/M08-137.1"))
+                 p("Gabelhouse, D.W., Jr. 1984. A length-categorization system to assess fish stocks. North American Journal of Fisheries Management 4:273-285.")
         )
       )
     )
