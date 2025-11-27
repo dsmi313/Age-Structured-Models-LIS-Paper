@@ -292,8 +292,8 @@ server <- function(input, output, session) {
       showNotification("Loaded White Crappie parameters (LIS paper)", type = "message")
 
     } else if (input$species == "black_crappie") {
-      updateNumericInput(session, "wl_a", value = 2.40991e-6)
-      updateNumericInput(session, "wl_b", value = 3.38)
+      updateNumericInput(session, "wl_a", value = 1.10e-5)  # FishBase median
+      updateNumericInput(session, "wl_b", value = 3.07)
       updateNumericInput(session, "mat_size", value = 180)  # ~7 inches (literature: 6-7" typical)
       updateNumericInput(session, "memorable_size", value = 305)  # 12 inches
       updateNumericInput(session, "linf", value = 381)  # FishBase Q2 (moderate growth)
@@ -305,9 +305,9 @@ server <- function(input, output, session) {
       showNotification("Loaded Black Crappie parameters (FishBase)", type = "message")
 
     } else if (input$species == "walleye") {
-      # Craig et al. 1995; Weight-length from North American data
-      updateNumericInput(session, "wl_a", value = 3.52e-6)  # From log10(W) = -5.453 + 3.180*log10(L)
-      updateNumericInput(session, "wl_b", value = 3.18)
+      # Weight-length from FishBase median
+      updateNumericInput(session, "wl_a", value = 6.63e-6)  # FishBase median
+      updateNumericInput(session, "wl_b", value = 3.10)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (female maturity lower range, literature)
       updateNumericInput(session, "memorable_size", value = 635)  # 25 inches (Gabelhouse 1984)
       updateNumericInput(session, "harvlim", value = 356)  # 14 inches minimum harvest size
@@ -320,9 +320,9 @@ server <- function(input, output, session) {
       showNotification("Loaded Walleye parameters (Craig et al. 1995)", type = "message")
 
     } else if (input$species == "lmb") {
-      # Lake Trasimeno study; averaged male/female parameters
-      updateNumericInput(session, "wl_a", value = 9.88e-6)  # From W=0.00988*L^3.15
-      updateNumericInput(session, "wl_b", value = 3.15)
+      # Weight-length from FishBase median
+      updateNumericInput(session, "wl_a", value = 8.16e-6)  # FishBase median
+      updateNumericInput(session, "wl_b", value = 3.10)
       updateNumericInput(session, "mat_size", value = 203)  # 8 inches (female maturity, literature)
       updateNumericInput(session, "memorable_size", value = 508)  # 20 inches (Gabelhouse 1984)
       updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
@@ -335,8 +335,8 @@ server <- function(input, output, session) {
       showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
 
     } else if (input$species == "smb") {
-      # Conservative estimates based on typical smallmouth bass populations
-      updateNumericInput(session, "wl_a", value = 1.08e-5)
+      # Weight-length from FishBase median
+      updateNumericInput(session, "wl_a", value = 1.09e-5)  # FishBase median
       updateNumericInput(session, "wl_b", value = 3.08)
       updateNumericInput(session, "mat_size", value = 254)  # 10 inches (female first spawn lower range, literature)
       updateNumericInput(session, "memorable_size", value = 432)  # 17 inches (Gabelhouse 1984)
@@ -350,10 +350,9 @@ server <- function(input, output, session) {
       showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
 
     } else if (input$species == "channel_catfish") {
-      # Channel catfish parameters (FishBase/literature/Gabelhouse 1984)
-      # W-L from NLLS: W(g) = 0.00522 * L(cm)^3.2293, converted to g and mm
-      updateNumericInput(session, "wl_a", value = 3.08e-6)
-      updateNumericInput(session, "wl_b", value = 3.23)
+      # Channel catfish parameters (FishBase median / Gabelhouse 1984)
+      updateNumericInput(session, "wl_a", value = 1.66e-6)  # FishBase median
+      updateNumericInput(session, "wl_b", value = 3.30)
       updateNumericInput(session, "mat_size", value = 356)  # 14 inches (literature: female maturity)
       updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
       updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
@@ -366,10 +365,9 @@ server <- function(input, output, session) {
       showNotification("Loaded Channel Catfish parameters (literature/Gabelhouse 1984)", type = "message")
 
     } else if (input$species == "blue_catfish") {
-      # Blue catfish parameters (FishBase/literature/Gabelhouse 1984)
-      # W-L from FishBase Bayesian: W(g) = 0.00525 * L(cm)^3.11, converted to g and mm
-      updateNumericInput(session, "wl_a", value = 4.08e-6)
-      updateNumericInput(session, "wl_b", value = 3.11)
+      # Blue catfish parameters (FishBase median / Gabelhouse 1984)
+      updateNumericInput(session, "wl_a", value = 7.74e-7)  # FishBase median
+      updateNumericInput(session, "wl_b", value = 3.41)
       updateNumericInput(session, "mat_size", value = 350)  # ~14 inches (female maturity lower range, literature: 35-50cm)
       updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
       updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
