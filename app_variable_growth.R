@@ -50,7 +50,10 @@ ui <- fluidPage(
         condition = "input.enable_ddr == true",
         sliderInput("steepness", "Steepness (h):",
                     min = 0.5, max = 0.95, value = 0.7, step = 0.01),
-        helpText(tags$small(tags$em("h = 0.5: strong compensation (recruitment proportional to SSB). h = 0.8+: weak compensation (recruitment nearly constant). Typical: 0.7-0.8.")))
+        helpText(tags$small(tags$em("h = 0.5: strong compensation (recruitment proportional to SSB). h = 0.8+: weak compensation (recruitment nearly constant). Typical: 0.7-0.8."))),
+        br(),
+        checkboxInput("enable_depensation", "Enable Depensation (Allee Effects)", value = FALSE),
+        helpText(tags$small(tags$em("When enabled, recruitment crashes when SSB drops below 20% of unfished level. Simulates mate-finding failure, predator swamping failure, and other critical thresholds.")))
       ),
 
       numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 50, step = 1),
@@ -842,6 +845,12 @@ server <- function(input, output, session) {
             # Ensure positive recruitment, minimum 1 recruit
             R_BH <- max(1, R_BH)
 
+            # Apply depensation (Allee effects) if enabled
+            if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
+              depensation_factor <- (SSB_t / (0.2 * SSB0))^2  # Quadratic penalty
+              R_BH <- R_BH * depensation_factor
+            }
+
             # Add stochastic noise
             Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
           }
@@ -1631,6 +1640,12 @@ server <- function(input, output, session) {
 
               # Ensure positive recruitment, minimum 1 recruit
               R_BH <- max(1, R_BH)
+
+              # Apply depensation (Allee effects) if enabled
+              if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
+                depensation_factor <- (SSB_t / (0.2 * SSB0))^2  # Quadratic penalty
+                R_BH <- R_BH * depensation_factor
+              }
 
               # Add stochastic noise
               Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
