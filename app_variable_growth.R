@@ -884,13 +884,16 @@ server <- function(input, output, session) {
 
       time_series_data(ts_data)
 
-      # Calculate mean and 95% prediction intervals for population structure
+      # Calculate mean, median, and 95% prediction intervals for population structure
       # Now using LENGTH BINS instead of age classes
       pop_data <- data.frame(
         Length = bin_midpoints,
         Weight = Wt_bins,
         Abundance_mean = rowMeans(all_Abundance, na.rm = TRUE),
+        Abundance_median = apply(all_Abundance, 1, median, na.rm = TRUE),
         Abundance_sd = apply(all_Abundance, 1, sd, na.rm = TRUE),
+        Abundance_q25 = apply(all_Abundance, 1, quantile, probs = 0.25, na.rm = TRUE),
+        Abundance_q75 = apply(all_Abundance, 1, quantile, probs = 0.75, na.rm = TRUE),
         VulCapture = Vulcap_bins,
         VulHarvest = Vulharv_bins
       )
@@ -1064,7 +1067,7 @@ server <- function(input, output, session) {
       ))
   })
 
-  # Population structure plot (by LENGTH)
+  # Population structure plot (by AGE)
   output$pop_structure <- renderPlotly({
     req(pop_structure_data())
     pop_data <- pop_structure_data()
@@ -1076,37 +1079,41 @@ server <- function(input, output, session) {
     Linf <- growth_params$Linf
     t0 <- growth_params$t0
 
-    # Calculate age for each length bin
+    # Calculate age for each length bin and round to nearest integer
     pop_data$Age <- t0 - (1/K) * log(pmax(0.01, 1 - pop_data$Length / Linf))
     pop_data$Age <- pmax(0, pop_data$Age)  # Ensure non-negative ages
+    pop_data$Age_int <- round(pop_data$Age)  # Round to nearest integer age
 
-    # Create age bins (0.5 year increments for smooth plotting)
-    max_age <- ceiling(max(pop_data$Age, na.rm = TRUE))
-    age_bins <- seq(0, max_age, by = 0.5)
-
-    # Aggregate abundance into age bins
-    pop_data$Age_bin <- cut(pop_data$Age, breaks = age_bins, labels = FALSE, include.lowest = TRUE)
-
-    # Sum abundance within each age bin
+    # Aggregate abundance by integer age
     age_data <- pop_data %>%
-      group_by(Age_bin) %>%
+      group_by(Age_int) %>%
       summarize(
-        Age = mean(Age, na.rm = TRUE),
-        Abundance_mean = sum(Abundance_mean, na.rm = TRUE),
-        Abundance_lower = sum(Abundance_lower, na.rm = TRUE),
-        Abundance_upper = sum(Abundance_upper, na.rm = TRUE),
+        Abundance_median = sum(Abundance_median, na.rm = TRUE),
+        Abundance_q25 = sum(Abundance_q25, na.rm = TRUE),
+        Abundance_q75 = sum(Abundance_q75, na.rm = TRUE),
         .groups = "drop"
       ) %>%
-      filter(!is.na(Age))
+      rename(Age = Age_int)
+
+    # Ensure all integer ages from 0 to max are represented
+    max_age <- max(age_data$Age, na.rm = TRUE)
+    all_ages <- data.frame(Age = 0:max_age)
+    age_data <- all_ages %>%
+      left_join(age_data, by = "Age") %>%
+      mutate(
+        Abundance_median = replace_na(Abundance_median, 0),
+        Abundance_q25 = replace_na(Abundance_q25, 0),
+        Abundance_q75 = replace_na(Abundance_q75, 0)
+      )
 
     p <- ggplot(age_data, aes(x = Age)) +
-      geom_ribbon(aes(ymin = Abundance_lower, ymax = Abundance_upper),
+      geom_ribbon(aes(ymin = Abundance_q25, ymax = Abundance_q75),
                   fill = "steelblue", alpha = 0.3) +
-      geom_col(aes(y = Abundance_mean), fill = "steelblue", alpha = 0.7, width = 0.4) +
-      geom_line(aes(y = Abundance_mean), color = "darkblue", size = 1) +
+      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, width = 0.8) +
+      geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
       scale_x_continuous(breaks = 0:max_age) +
       labs(title = "Age Distribution at Equilibrium",
-           subtitle = "Shaded area shows 95% prediction interval (mean ± 1.96 × SD). Ages inferred from length using von Bertalanffy.",
+           subtitle = "Bars show median abundance. Shaded area shows 25th-75th percentile range. Ages inferred from length using von Bertalanffy.",
            x = "Age (years)", y = "Abundance") +
       theme_minimal()
 
