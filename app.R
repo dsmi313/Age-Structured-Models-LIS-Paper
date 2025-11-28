@@ -225,7 +225,10 @@ ui <- fluidPage(
                             tags$br(),
                             tags$strong("Total Yield (blue):"), " YPR × Recruitment - the actual population-level harvest.",
                             tags$br(),
-                            tags$strong("Recruitment (green):"), " Equilibrium recruitment at each exploitation rate (with DDR if enabled)."),
+                            tags$strong("Recruitment (green):"), " Equilibrium recruitment at each exploitation rate (with DDR if enabled).")
+                 ),
+                 conditionalPanel(
+                   condition = "input.enable_ddr == true",
                    plotlyOutput("msy_plot", height = "500px"),
                    br()
                  )
@@ -674,13 +677,15 @@ server <- function(input, output, session) {
         sim = 1:nsim,
         YPR = rep(NA, nsim),
         SPR = rep(NA, nsim),
-        Prop = rep(NA, nsim)
+        Prop = rep(NA, nsim),
+        MeanLengthHarvested = rep(NA, nsim)  # Mean length of harvested fish
       )
 
       # Store ALL time series data from all simulations
       all_YPR <- matrix(NA, Ymax, nsim)
       all_SPR <- matrix(NA, Ymax, nsim)
       all_Prop <- matrix(NA, Ymax, nsim)
+      all_SSB <- matrix(NA, Ymax, nsim)  # Store SSB time series
       all_Abundance <- matrix(NA, Amax, nsim)  # Store population structure from all sims
 
       for(k in 1:nsim) {
@@ -693,6 +698,7 @@ server <- function(input, output, session) {
         SPRt <- rep(NA, Ymax)
         YPR <- rep(NA, Ymax)
         Prop <- rep(NA, Ymax)
+        SSBt <- rep(NA, Ymax)  # Spawning stock biomass time series
 
         # Set initial population structure (unfished)
         N[1, 1] <- 10000
@@ -726,7 +732,8 @@ server <- function(input, output, session) {
         # Calculate metrics for unfished burn-in period (years 1-20)
         for(yr in 1:min(20, Ymax)) {
           Yield[yr] <- 0  # No fishing during burn-in
-          SPRt[yr] <- sum(N[yr, ] * Fec) / SPR_denom  # Build toward equilibrium
+          SSBt[yr] <- sum(N[yr, ] * Fec)  # Track SSB during burn-in
+          SPRt[yr] <- SSBt[yr] / SPR_denom  # Build toward equilibrium
           YPR[yr] <- 0
           Prop[yr] <- sum(trophyvul * N[yr, ]) / max(1, sum(N[yr, ]))
         }
@@ -765,7 +772,8 @@ server <- function(input, output, session) {
 
           # Calculate annual metrics (after all ages are updated)
           Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
-          SPRt[i] <- sum(N[i, ] * Fec) / SPR_denom
+          SSBt[i] <- sum(N[i, ] * Fec)  # Spawning stock biomass
+          SPRt[i] <- SSBt[i] / SPR_denom
           YPR[i] <- ifelse(N[i, 1] > 0, (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1], 0)
           Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
         }
@@ -781,10 +789,25 @@ server <- function(input, output, session) {
         Propout <- Prop[last_50_start:Ymax]
         results$Prop[k] <- mean(Propout, na.rm = TRUE)
 
+        # Calculate mean length of harvested fish (weighted average over last 50 years)
+        harvest_lengths <- numeric(length(last_50_start:Ymax))
+        for(yr_idx in seq_along(last_50_start:Ymax)) {
+          yr <- last_50_start + yr_idx - 1
+          harvest_by_age <- N[yr, ] * Vulharv * U
+          total_harvest <- sum(harvest_by_age)
+          if(total_harvest > 0) {
+            harvest_lengths[yr_idx] <- sum(harvest_by_age * TL) / total_harvest
+          } else {
+            harvest_lengths[yr_idx] <- NA
+          }
+        }
+        results$MeanLengthHarvested[k] <- mean(harvest_lengths, na.rm = TRUE)
+
         # Store time series from this simulation
         all_YPR[, k] <- YPR
         all_SPR[, k] <- SPRt
         all_Prop[, k] <- Prop
+        all_SSB[, k] <- SSBt
 
         # Store final year abundance from this simulation
         all_Abundance[, k] <- N[Ymax, ]
@@ -798,7 +821,9 @@ server <- function(input, output, session) {
         SPR_mean = rowMeans(all_SPR, na.rm = TRUE),
         SPR_sd = apply(all_SPR, 1, sd, na.rm = TRUE),
         Prop_mean = rowMeans(all_Prop, na.rm = TRUE),
-        Prop_sd = apply(all_Prop, 1, sd, na.rm = TRUE)
+        Prop_sd = apply(all_Prop, 1, sd, na.rm = TRUE),
+        SSB_mean = rowMeans(all_SSB, na.rm = TRUE),
+        SSB_sd = apply(all_SSB, 1, sd, na.rm = TRUE)
       )
 
       # Calculate 95% prediction intervals: mean ± 1.96 × SD
@@ -809,6 +834,8 @@ server <- function(input, output, session) {
       ts_data$SPR_upper <- ts_data$SPR_mean + 1.96 * ts_data$SPR_sd  # Allow > 1 during burn-in
       ts_data$Prop_lower <- pmax(0, ts_data$Prop_mean - 1.96 * ts_data$Prop_sd)
       ts_data$Prop_upper <- pmin(1, ts_data$Prop_mean + 1.96 * ts_data$Prop_sd)
+      ts_data$SSB_lower <- pmax(0, ts_data$SSB_mean - 1.96 * ts_data$SSB_sd)
+      ts_data$SSB_upper <- ts_data$SSB_mean + 1.96 * ts_data$SSB_sd
 
       time_series_data(ts_data)
 
@@ -821,7 +848,8 @@ server <- function(input, output, session) {
         Abundance_q25 = apply(all_Abundance, 1, quantile, probs = 0.25, na.rm = TRUE),
         Abundance_q75 = apply(all_Abundance, 1, quantile, probs = 0.75, na.rm = TRUE),
         VulCapture = Vulcap,
-        VulHarvest = Vulharv
+        VulHarvest = Vulharv,
+        VulTrophy = trophyvul  # Trophy/memorable vulnerability
       )
       pop_structure_data(pop_data)
 
@@ -867,6 +895,15 @@ server <- function(input, output, session) {
     cat(sprintf("  SPR:              %.4f ± %.4f\n",
                 mean(results$SPR, na.rm = TRUE),
                 sd(results$SPR, na.rm = TRUE)))
+
+    # Convert mean length harvested to inches for display
+    mean_length_mm <- mean(results$MeanLengthHarvested, na.rm = TRUE)
+    mean_length_inches <- mean_length_mm / 25.4
+    sd_length_mm <- sd(results$MeanLengthHarvested, na.rm = TRUE)
+    sd_length_inches <- sd_length_mm / 25.4
+    cat(sprintf("  Mean Length Harvested: %.1f\" (%.0f mm) ± %.1f\" (%.0f mm)\n",
+                mean_length_inches, mean_length_mm,
+                sd_length_inches, sd_length_mm))
 
     # Management warning if SPR < 0.3
     mean_spr <- mean(results$SPR, na.rm = TRUE)
@@ -977,8 +1014,25 @@ server <- function(input, output, session) {
       geom_line(color = "darkorange", size = 1) +
       geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
       labs(title = paste0("Proportion Memorable (≥", memorable_inches, "\") Over Time"),
-           subtitle = "Mean ± 95% prediction interval",
-           x = "Year", y = "Proportion") +
+           subtitle = "Mean ± 95% prediction interval | Gray: unfished burn-in",
+           x = "", y = "Proportion") +
+      theme_minimal()
+
+    # Calculate 20% SSB threshold (depensation threshold) from unfished SSB
+    SSB0_approx <- ts_data$SSB_mean[20]  # Unfished equilibrium at end of burn-in
+    depensation_threshold <- SSB0_approx * 0.2
+
+    p4 <- ggplot(ts_data, aes(x = Year, y = SSB_mean)) +
+      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+               fill = "gray", alpha = 0.2) +
+      geom_ribbon(aes(ymin = SSB_lower, ymax = SSB_upper),
+                  alpha = 0.2, fill = "purple") +
+      geom_line(color = "purple", size = 1) +
+      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_hline(yintercept = depensation_threshold, linetype = "dashed", color = "red", alpha = 0.7) +
+      labs(title = "Spawning Stock Biomass (SSB) Over Time",
+           subtitle = "Dashed red line: 20% SSB₀ (depensation threshold) | Gray: unfished burn-in",
+           x = "Year", y = "SSB (eggs)") +
       theme_minimal()
 
     # Combine plots vertically
@@ -986,7 +1040,8 @@ server <- function(input, output, session) {
       ggplotly(p1),
       ggplotly(p2),
       ggplotly(p3),
-      nrows = 3,
+      ggplotly(p4),
+      nrows = 4,
       shareX = TRUE,
       titleY = TRUE
     ) %>%
@@ -1036,20 +1091,34 @@ server <- function(input, output, session) {
       Type = "VulHarvest"
     )
 
-    vul_long <- rbind(capture_data, harvest_data)
+    # Offset trophy curve by 4mm so all three curves are visible
+    trophy_data <- data.frame(
+      Length = pop_data$Length + 4,
+      Vulnerability = pop_data$VulTrophy,
+      Type = "VulTrophy"
+    )
+
+    vul_long <- rbind(capture_data, harvest_data, trophy_data)
 
     # Get the full range of length data
     length_range <- range(pop_data$Length, na.rm = TRUE)
     x_max <- ceiling(length_range[2] * 1.05 / 100) * 100  # Round up to nearest 100
 
+    # Get memorable size for vertical line
+    memorable_mm <- input$memorable_size
+
     p <- ggplot(vul_long, aes(x = Length, y = Vulnerability, color = Type)) +
       geom_line(size = 1.2) +
+      geom_vline(xintercept = memorable_mm, linetype = "dashed", color = "goldenrod", alpha = 0.6) +
+      annotate("text", x = memorable_mm + 15, y = 0.5, label = "Memorable\nthreshold",
+               color = "goldenrod", size = 3, hjust = 0) +
       scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
       labs(title = "Vulnerability Curves by Length",
+           subtitle = "Curves slightly offset for visibility. Dashed line: memorable size threshold.",
            x = "Total Length (mm)", y = "Vulnerability",
            color = "Type") +
-      scale_color_manual(values = c("VulCapture" = "blue", "VulHarvest" = "red"),
-                         labels = c("Capture", "Harvest")) +
+      scale_color_manual(values = c("VulCapture" = "blue", "VulHarvest" = "red", "VulTrophy" = "goldenrod"),
+                         labels = c("Capture", "Harvest", "Trophy/Memorable")) +
       theme_minimal()
 
     ggplotly(p) %>%
@@ -1367,7 +1436,7 @@ server <- function(input, output, session) {
       N_unfished[1, ] <- Ro * S
 
       for(init_year in 2:min(20, Ymax)) {
-        N_unfished[init_year, 1] <- Ro
+        N_unfished[init_year, 1] <- Ro * rlnorm(1, 0, sd = sigmaR)  # Stochastic recruitment
         N_unfished[init_year, 2:Amax] <- N_unfished[init_year-1, 1:(Amax-1)] * So
       }
 

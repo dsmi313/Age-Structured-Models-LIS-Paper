@@ -212,7 +212,10 @@ ui <- fluidPage(
                             tags$br(),
                             tags$strong("Total Yield (blue):"), " YPR × Recruitment - the actual population-level harvest.",
                             tags$br(),
-                            tags$strong("Recruitment (green):"), " Equilibrium recruitment at each exploitation rate (with DDR if enabled)."),
+                            tags$strong("Recruitment (green):"), " Equilibrium recruitment at each exploitation rate (with DDR if enabled).")
+                 ),
+                 conditionalPanel(
+                   condition = "input.enable_ddr == true",
                    plotlyOutput("msy_plot", height = "500px"),
                    br()
                  ),
