@@ -204,7 +204,7 @@ ui <- fluidPage(
                  br(),
                  br(),
                  conditionalPanel(
-                   condition = "input.enable_ddr == true",
+                   condition = "input.enable_ddr == true && output.msy_plot",
                    h4("Maximum Sustainable Yield (MSY) Analysis"),
                    helpText("Shows total yield and equilibrium recruitment across exploitation rates.",
                             tags$br(),
@@ -216,13 +216,16 @@ ui <- fluidPage(
                    plotlyOutput("msy_plot", height = "500px"),
                    br()
                  ),
-                 h4("Yield Per Recruit vs Exploitation Rate"),
-                 helpText("Shows how YPR and SPR respond to different exploitation rates with current growth and selectivity parameters.",
-                          tags$br(),
-                          tags$strong("Shaded bands show where 95% of population outcomes fall"),
-                          "due to stochastic recruitment variability (not uncertainty in the mean estimate).",
-                          tags$br(),
-                          "Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished)."),
+                 conditionalPanel(
+                   condition = "output.yield_curve_plot",
+                   h4("Yield Per Recruit vs Exploitation Rate"),
+                   helpText("Shows how YPR and SPR respond to different exploitation rates with current growth and selectivity parameters.",
+                            tags$br(),
+                            tags$strong("Shaded bands show where 95% of population outcomes fall"),
+                            "due to stochastic recruitment variability (not uncertainty in the mean estimate).",
+                            tags$br(),
+                            "Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished).")
+                 ),
                  plotlyOutput("yield_curve_plot", height = "400px"),
                  plotlyOutput("spr_curve_plot", height = "400px"),
                  plotlyOutput("prop_curve_plot", height = "400px")
