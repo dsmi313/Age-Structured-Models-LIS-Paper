@@ -122,7 +122,7 @@ ui <- fluidPage(
       numericInput("nsim", "Number of Simulations:",
                    value = 1000, min = 100, max = 10000, step = 100),
       numericInput("ymax", "Years to Simulate:",
-                   value = 100, min = 50, max = 200),
+                   value = 120, min = 50, max = 200),
 
       actionButton("run_sim", "Run Simulation", class = "btn-primary"),
       br(),
