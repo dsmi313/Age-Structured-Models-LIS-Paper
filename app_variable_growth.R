@@ -805,8 +805,8 @@ server <- function(input, output, session) {
           # Apply growth (move to new length bins)
           N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
 
-          # Add deterministic recruitment (no stochasticity in unfished equilibrium)
-          N[init_year, ] <- N[init_year, ] + Ro * recruit_dist
+          # Add stochastic recruitment (unfished populations still have recruitment variability)
+          N[init_year, ] <- N[init_year, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
         }
 
         # Compute SPR denominator from unfished equilibrium (year 20 or last year if Ymax < 20)
@@ -1621,8 +1621,8 @@ server <- function(input, output, session) {
             # Apply growth (move to new length bins)
             N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
 
-            # Add deterministic recruitment (no stochasticity in unfished equilibrium)
-            N[init_year, ] <- N[init_year, ] + Ro * recruit_dist
+            # Add stochastic recruitment (unfished populations still have recruitment variability)
+            N[init_year, ] <- N[init_year, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
           }
 
           # Compute SPR denominator from unfished equilibrium

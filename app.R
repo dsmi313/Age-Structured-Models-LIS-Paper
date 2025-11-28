@@ -698,7 +698,7 @@ server <- function(input, output, session) {
         # Build UNFISHED equilibrium over first 20 years (establish baseline for SPR)
         for(init_year in 2:min(20, Ymax)) {
           # Apply unfished survival (natural mortality only, NO fishing)
-          N[init_year, 1] <- Ro  # Deterministic recruitment during burn-in
+          N[init_year, 1] <- Ro * rlnorm(1, 0, sd = sigmaR)  # Stochastic recruitment in unfished population
           N[init_year, 2:Amax] <- N[init_year-1, 1:(Amax-1)] * So  # Only natural survival
         }
 
@@ -1423,7 +1423,7 @@ server <- function(input, output, session) {
 
           # Build UNFISHED equilibrium over first 20 years
           for(init_year in 2:min(20, Ymax)) {
-            N[init_year, 1] <- Ro
+            N[init_year, 1] <- Ro * rlnorm(1, 0, sd = sigmaR)  # Stochastic recruitment
             N[init_year, 2:Amax] <- N[init_year-1, 1:(Amax-1)] * So
           }
 
