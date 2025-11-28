@@ -1658,7 +1658,8 @@ server <- function(input, output, session) {
         yaxis2 = list(title = "Equilibrium Recruitment (number)", side = "right", overlaying = "y", showgrid = FALSE,
                       range = c(0, recruit_max)),
         hovermode = "x unified",
-        legend = list(x = 0.7, y = 0.95)
+        legend = list(x = 0.7, y = 0.95),
+        margin = list(r = 100)  # Add right margin for y-axis2 title visibility
       )
 
     p
