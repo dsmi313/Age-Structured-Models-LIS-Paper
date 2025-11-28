@@ -713,13 +713,14 @@ server <- function(input, output, session) {
         growth_increment <- max(0.1, growth_increment)
 
         # Add variability: SD = growth_increment * CV
-        # Set minimum SD to avoid pnorm() issues
-        growth_sd <- max(0.5, growth_increment * growth_cv)
+        # Set minimum SD to avoid pnorm() issues and ensure proper scaling with bin width
+        # Ensures variability scales appropriately for both small (crappie) and large (catfish) species
+        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
 
         # For fish at or above Linf, minimal growth with small SD
         if(current_length >= Linf * 0.99) {
           growth_increment <- 0.1
-          growth_sd <- 0.5
+          growth_sd <- max(1, bin_width * 0.15)
         }
 
         # Distribute probability across bins
@@ -879,6 +880,10 @@ server <- function(input, output, session) {
 
           Yield[i] <- sum(Wt_bins * Vulharv_bins * N[i, ]) * U
           SPRt[i] <- sum(N[i, ] * Fec_bins) / SPR_denom
+          # YPR = Yield / Recruitment. With DDR, this has a less clean interpretation than
+          # traditional per-recruit models because: (1) recruitment depends on SSB, and
+          # (2) yield depends on length structure. Still valid, but represents equilibrium
+          # yield per recruit at the current SSB level, not a constant biological parameter.
           YPR[i] <- Yield[i] / max(1, Rcapacity[i])  # Prevent division by zero
           Prop[i] <- sum(trophyvul_bins * N[i, ]) / max(1, sum(N[i, ]))  # Prevent division by zero
         }
@@ -1513,12 +1518,13 @@ server <- function(input, output, session) {
         # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
         growth_increment <- (Linf - current_length) * (1 - exp(-K))
         growth_increment <- max(0.1, growth_increment)  # Ensure positive
-        growth_sd <- max(0.5, growth_increment * growth_cv)  # Minimum SD
+        # Set minimum SD to ensure proper scaling with bin width
+        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
 
         # For fish at or above Linf, minimal growth with small SD
         if(current_length >= Linf * 0.99) {
           growth_increment <- 0.1
-          growth_sd <- 0.5
+          growth_sd <- max(1, bin_width * 0.15)
         }
 
         # Distribute probability across bins
