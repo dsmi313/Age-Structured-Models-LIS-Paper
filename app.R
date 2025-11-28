@@ -803,7 +803,7 @@ server <- function(input, output, session) {
       ts_data$YPR_lower <- pmax(0, ts_data$YPR_mean - 1.96 * ts_data$YPR_sd)
       ts_data$YPR_upper <- ts_data$YPR_mean + 1.96 * ts_data$YPR_sd
       ts_data$SPR_lower <- pmax(0, ts_data$SPR_mean - 1.96 * ts_data$SPR_sd)
-      ts_data$SPR_upper <- pmin(1, ts_data$SPR_mean + 1.96 * ts_data$SPR_sd)
+      ts_data$SPR_upper <- ts_data$SPR_mean + 1.96 * ts_data$SPR_sd  # Allow > 1 during burn-in
       ts_data$Prop_lower <- pmax(0, ts_data$Prop_mean - 1.96 * ts_data$Prop_sd)
       ts_data$Prop_upper <- pmin(1, ts_data$Prop_mean + 1.96 * ts_data$Prop_sd)
 
@@ -1554,9 +1554,9 @@ server <- function(input, output, session) {
 
     # Calculate 95% prediction interval: mean ± 1.96 × SD
     # Shows where 95% of population outcomes fall due to recruitment variability
-    # Constrain SPR to biologically valid range [0, 1]
+    # Constrain SPR lower bound to 0, allow upper to exceed 1
     curve_data$SPR_lower <- pmax(0, curve_data$SPR_mean - 1.96 * curve_data$SPR_sd)
-    curve_data$SPR_upper <- pmin(1, curve_data$SPR_mean + 1.96 * curve_data$SPR_sd)
+    curve_data$SPR_upper <- curve_data$SPR_mean + 1.96 * curve_data$SPR_sd
 
     p <- ggplot(curve_data, aes(x = U * 100, y = SPR_mean)) +
       geom_line(color = "darkgreen", size = 1.5) +
