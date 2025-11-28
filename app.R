@@ -695,11 +695,18 @@ server <- function(input, output, session) {
         N[1, 1] <- 10000
         N[1, ] <- Ro * S
 
-        # Pre-compute SPR denominator (unfished spawning potential)
-        SPR_denom <- sum(N[1, ] * Fec)
+        # Build UNFISHED equilibrium over first 20 years (establish baseline for SPR)
+        for(init_year in 2:min(20, Ymax)) {
+          # Apply unfished survival (natural mortality only, NO fishing)
+          N[init_year, 1] <- Ro  # Deterministic recruitment during burn-in
+          N[init_year, 2:Amax] <- N[init_year-1, 1:(Amax-1)] * So  # Only natural survival
+        }
 
-        # Compute unfished SSB0 (for DDR if enabled)
-        SSB0 <- sum(N[1, ] * Fec)
+        # Compute SPR denominator from unfished equilibrium (year 20 or last year if Ymax < 20)
+        SPR_denom <- sum(N[min(20, Ymax), ] * Fec)
+
+        # Compute unfished SSB0 for DDR (from unfished equilibrium)
+        SSB0 <- sum(N[min(20, Ymax), ] * Fec)
 
         # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
         if(isTRUE(input$enable_ddr)) {
@@ -713,14 +720,16 @@ server <- function(input, output, session) {
         # Get steepness if DDR is enabled
         h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
-        # Calculate metrics for year 1 (initial unfished population)
-        Yield[1] <- sum(Wt * Vulharv * N[1, ]) * U
-        SPRt[1] <- sum(N[1, ] * Fec) / SPR_denom
-        YPR[1] <- ifelse(N[1, 1] > 0, (sum(Wt * Vulharv * N[1, ]) * U) / N[1, 1], 0)
-        Prop[1] <- sum(trophyvul * N[1, ]) / sum(N[1, ])
+        # Calculate metrics for unfished burn-in period (years 1-20)
+        for(yr in 1:min(20, Ymax)) {
+          Yield[yr] <- 0  # No fishing during burn-in
+          SPRt[yr] <- sum(N[yr, ] * Fec) / SPR_denom  # Build toward equilibrium
+          YPR[yr] <- 0
+          Prop[yr] <- sum(trophyvul * N[yr, ]) / max(1, sum(N[yr, ]))
+        }
 
-        # Vectorized age progression loop
-        for(i in 2:Ymax) {
+        # Main simulation loop with FISHING (starts at year 21)
+        for(i in max(21, min(21, Ymax)):Ymax) {
           # If DDR enabled, calculate recruitment from previous year's SSB
           if(isTRUE(input$enable_ddr)) {
             # Calculate spawning stock biomass from PREVIOUS year
@@ -758,14 +767,15 @@ server <- function(input, output, session) {
           Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
         }
 
-        # Store results (last 50 years)
-        SPRout <- SPRt[50:Ymax]
+        # Store results (last 50 years of fished equilibrium)
+        last_50_start <- max(21, Ymax - 49)  # Ensure we don't include unfished burn-in
+        SPRout <- SPRt[last_50_start:Ymax]
         results$SPR[k] <- mean(SPRout, na.rm = TRUE)
 
-        YPRout <- YPR[50:Ymax]
+        YPRout <- YPR[last_50_start:Ymax]
         results$YPR[k] <- mean(YPRout, na.rm = TRUE)
 
-        Propout <- Prop[50:Ymax]
+        Propout <- Prop[last_50_start:Ymax]
         results$Prop[k] <- mean(Propout, na.rm = TRUE)
 
         # Store time series from this simulation
@@ -930,17 +940,24 @@ server <- function(input, output, session) {
 
     # Create separate plots for each metric with ribbons
     p1 <- ggplot(ts_data, aes(x = Year, y = YPR_mean)) +
+      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+               fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = YPR_lower, ymax = YPR_upper),
                   alpha = 0.2, fill = "steelblue") +
       geom_line(color = "steelblue", size = 1) +
+      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
       labs(title = "YPR Over Time (Mean ± 95% Prediction Interval)",
+           subtitle = "Gray shaded area: unfished burn-in period (years 1-20)",
            x = "", y = "YPR (kg)") +
       theme_minimal()
 
     p2 <- ggplot(ts_data, aes(x = Year, y = SPR_mean)) +
+      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+               fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = SPR_lower, ymax = SPR_upper),
                   alpha = 0.2, fill = "darkgreen") +
       geom_line(color = "darkgreen", size = 1) +
+      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
       geom_hline(yintercept = 0.40, linetype = "dashed", color = "orange", alpha = 0.7) +
       geom_hline(yintercept = 0.30, linetype = "dashed", color = "red", alpha = 0.7) +
       labs(title = "SPR Over Time (Mean ± 95% Prediction Interval)",
@@ -950,9 +967,12 @@ server <- function(input, output, session) {
 
     memorable_inches <- round(input$memorable_size / 25.4, 1)
     p3 <- ggplot(ts_data, aes(x = Year, y = Prop_mean)) +
+      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+               fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = Prop_lower, ymax = Prop_upper),
                   alpha = 0.2, fill = "darkorange") +
       geom_line(color = "darkorange", size = 1) +
+      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
       labs(title = paste0("Proportion Memorable (≥", memorable_inches, "\") Over Time"),
            subtitle = "Mean ± 95% prediction interval",
            x = "Year", y = "Proportion") +
@@ -1325,9 +1345,6 @@ server <- function(input, output, session) {
       # Trophy vulnerability
       trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
 
-      # SPR denominator (unfished spawning potential per recruit)
-      SPR_denom <- sum((Ro * S) * Fec)
-
       # Pre-compute weight-harvest product (used in YPR calculation)
       Wt_harvest <- Wt * Vulharv
 
@@ -1340,8 +1357,20 @@ server <- function(input, output, session) {
 
       nsim <- input$yield_curve_nsim
 
-      # Compute unfished SSB0 (for DDR if enabled)
-      SSB0 <- sum((Ro * S) * Fec)
+      # Build unfished equilibrium to get proper SPR_denom and SSB0
+      # This is used as baseline for all yield curve simulations
+      N_unfished <- matrix(NA, min(20, Ymax), Amax)
+      N_unfished[1, 1] <- 10000
+      N_unfished[1, ] <- Ro * S
+
+      for(init_year in 2:min(20, Ymax)) {
+        N_unfished[init_year, 1] <- Ro
+        N_unfished[init_year, 2:Amax] <- N_unfished[init_year-1, 1:(Amax-1)] * So
+      }
+
+      # SPR denominator and SSB0 from unfished equilibrium (year 20)
+      SPR_denom <- sum(N_unfished[min(20, Ymax), ] * Fec)
+      SSB0 <- sum(N_unfished[min(20, Ymax), ] * Fec)
 
       # Generate recruitment (conditional on DDR)
       if(isTRUE(input$enable_ddr)) {
@@ -1392,6 +1421,12 @@ server <- function(input, output, session) {
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
 
+          # Build UNFISHED equilibrium over first 20 years
+          for(init_year in 2:min(20, Ymax)) {
+            N[init_year, 1] <- Ro
+            N[init_year, 2:Amax] <- N[init_year-1, 1:(Amax-1)] * So
+          }
+
           # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
           if(isTRUE(input$enable_ddr)) {
             # Will be calculated dynamically inside loop based on SSB
@@ -1401,14 +1436,15 @@ server <- function(input, output, session) {
             Rcapacity <- Rmat[, k]
           }
 
-          # Calculate metrics for year 1 (initial unfished population)
-          harvest_weight_1 <- sum(Wt_harvest * N[1, ])
-          YPR[1] <- ifelse(N[1, 1] > 0, (harvest_weight_1 * U_test) / N[1, 1], 0)
-          SPRt[1] <- sum(Fec * N[1, ]) / SPR_denom
-          Prop[1] <- sum(trophyvul * N[1, ]) / sum(N[1, ])
+          # Calculate metrics for unfished burn-in period (years 1-20)
+          for(yr in 1:min(20, Ymax)) {
+            YPR[yr] <- 0  # No fishing during burn-in
+            SPRt[yr] <- sum(Fec * N[yr, ]) / SPR_denom
+            Prop[yr] <- sum(trophyvul * N[yr, ]) / max(1, sum(N[yr, ]))
+          }
 
-          # Vectorized age progression loop
-          for(i in 2:Ymax) {
+          # Main simulation loop with FISHING (starts at year 21)
+          for(i in max(21, min(21, Ymax)):Ymax) {
             # If DDR enabled, calculate recruitment from previous year's SSB
             if(isTRUE(input$enable_ddr)) {
               # Calculate spawning stock biomass from PREVIOUS year
@@ -1453,10 +1489,12 @@ server <- function(input, output, session) {
             Prop[i] <- sum(trophyvul * N_i) / abundance_now
           }
 
-          ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
-          spr_vals[k] <- mean(SPRt[50:Ymax], na.rm = TRUE)
-          prop_vals[k] <- mean(Prop[50:Ymax], na.rm = TRUE)
-          recruit_vals[k] <- mean(Rcapacity[50:Ymax], na.rm = TRUE)
+          # Calculate summary stats from last 50 fished years
+          last_50_start <- max(21, Ymax - 49)
+          ypr_vals[k] <- mean(YPR[last_50_start:Ymax], na.rm = TRUE)
+          spr_vals[k] <- mean(SPRt[last_50_start:Ymax], na.rm = TRUE)
+          prop_vals[k] <- mean(Prop[last_50_start:Ymax], na.rm = TRUE)
+          recruit_vals[k] <- mean(Rcapacity[last_50_start:Ymax], na.rm = TRUE)
         }
 
         # Calculate Total Yield = YPR × Recruitment
