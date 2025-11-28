@@ -1566,6 +1566,11 @@ server <- function(input, output, session) {
     curve_data$Recruit_lower <- curve_data$Recruit_mean - 1.96 * curve_data$Recruit_sd
     curve_data$Recruit_upper <- curve_data$Recruit_mean + 1.96 * curve_data$Recruit_sd
 
+    # Calculate y-axis ranges to ensure zeros align
+    # Both axes start at 0 and extend to max with 10% padding
+    yield_max <- max(curve_data$TotalYield_upper, na.rm = TRUE) * 1.1
+    recruit_max <- max(curve_data$Recruit_upper, na.rm = TRUE) * 1.1
+
     # Create dual-axis plot using plotly
     p <- plot_ly(curve_data) %>%
       # Total Yield (left y-axis)
@@ -1587,12 +1592,14 @@ server <- function(input, output, session) {
       add_trace(x = ~U * 100, y = ~Recruit_mean, type = "scatter", mode = "lines+markers",
                 line = list(color = "forestgreen", width = 3, dash = "dash"),
                 marker = list(size = 6), name = "Equilibrium Recruitment", yaxis = "y2") %>%
-      # Layout with dual y-axes
+      # Layout with dual y-axes (both starting at 0 to align zeros)
       layout(
         title = "Maximum Sustainable Yield (MSY) Analysis",
         xaxis = list(title = "Exploitation Rate (%)"),
-        yaxis = list(title = "Total Yield (kg)", side = "left", showgrid = FALSE),
-        yaxis2 = list(title = "Equilibrium Recruitment (number)", side = "right", overlaying = "y", showgrid = FALSE),
+        yaxis = list(title = "Total Yield (kg)", side = "left", showgrid = FALSE,
+                     range = c(0, yield_max)),
+        yaxis2 = list(title = "Equilibrium Recruitment (number)", side = "right", overlaying = "y", showgrid = FALSE,
+                      range = c(0, recruit_max)),
         hovermode = "x unified",
         legend = list(x = 0.7, y = 0.95)
       )
