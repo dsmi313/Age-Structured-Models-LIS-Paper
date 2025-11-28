@@ -1158,7 +1158,7 @@ server <- function(input, output, session) {
       geom_hline(yintercept = depensation_threshold, linetype = "dashed", color = "red", alpha = 0.7) +
       labs(title = "Spawning Stock Biomass (SSB) Over Time",
            subtitle = "Dashed red line: 20% SSB₀ (depensation threshold) | Gray: unfished burn-in",
-           x = "Year", y = "SSB (eggs)") +
+           x = "Year", y = "SSB (kg)") +
       theme_minimal()
 
     # Combine plots vertically
