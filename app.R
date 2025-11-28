@@ -48,7 +48,10 @@ ui <- fluidPage(
         condition = "input.enable_ddr == true",
         sliderInput("steepness", "Steepness (h):",
                     min = 0.2, max = 1.0, value = 0.7, step = 0.05),
-        helpText(tags$small(tags$em("h = 0.2: weak compensation (recruitment drops quickly with SSB). h = 0.8+: strong compensation (recruitment stays high even when SSB is low). Typical: h = 0.7-0.9.")))
+        helpText(tags$small(tags$em("h = 0.2: weak compensation (recruitment drops quickly with SSB). h = 0.8+: strong compensation (recruitment stays high even when SSB is low). Typical: h = 0.7-0.9."))),
+        br(),
+        checkboxInput("enable_depensation", "Enable Depensation (Allee Effects)", value = FALSE),
+        helpText(tags$small(tags$em("When enabled, recruitment crashes when SSB drops below 20% of unfished level. Simulates mate-finding failure, predator swamping failure, and other critical thresholds.")))
       ),
       br(),
 
@@ -207,7 +210,22 @@ ui <- fluidPage(
                  br(),
                  plotlyOutput("yield_curve_plot", height = "400px"),
                  plotlyOutput("spr_curve_plot", height = "400px"),
-                 plotlyOutput("prop_curve_plot", height = "400px")
+                 plotlyOutput("prop_curve_plot", height = "400px"),
+                 br(),
+
+                 conditionalPanel(
+                   condition = "input.enable_ddr == true",
+                   h4("Maximum Sustainable Yield (MSY) Analysis"),
+                   helpText("Shows total yield and equilibrium recruitment across exploitation rates.",
+                            tags$br(),
+                            tags$strong("Red star marks MSY:"), " the maximum sustainable yield and optimal exploitation rate (U_MSY).",
+                            tags$br(),
+                            tags$strong("Total Yield (blue):"), " YPR × Recruitment - the actual population-level harvest.",
+                            tags$br(),
+                            tags$strong("Recruitment (green):"), " Equilibrium recruitment at each exploitation rate (with DDR if enabled)."),
+                   plotlyOutput("msy_plot", height = "500px"),
+                   br()
+                 )
         ),
 
         tabPanel("About",
@@ -710,6 +728,12 @@ server <- function(input, output, session) {
 
             # Ensure positive recruitment, minimum 1 recruit
             R_BH <- max(1, R_BH)
+
+            # Apply depensation (Allee effects) if enabled
+            if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
+              depensation_factor <- (SSB_t / (0.2 * SSB0))^2  # Quadratic penalty
+              R_BH <- R_BH * depensation_factor
+            }
 
             # Add stochastic noise
             Rcapacity[i-1] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
@@ -1348,6 +1372,7 @@ server <- function(input, output, session) {
         ypr_vals <- numeric(nsim)
         spr_vals <- numeric(nsim)
         prop_vals <- numeric(nsim)
+        recruit_vals <- numeric(nsim)
 
         for(k in 1:nsim) {
           # Initialize matrices for this simulation
@@ -1385,6 +1410,12 @@ server <- function(input, output, session) {
               # Ensure positive recruitment, minimum 1 recruit
               R_BH <- max(1, R_BH)
 
+              # Apply depensation (Allee effects) if enabled
+              if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
+                depensation_factor <- (SSB_t / (0.2 * SSB0))^2  # Quadratic penalty
+                R_BH <- R_BH * depensation_factor
+              }
+
               # Add stochastic noise
               Rcapacity[i-1] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
             }
@@ -1412,7 +1443,11 @@ server <- function(input, output, session) {
           ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
           spr_vals[k] <- mean(SPRt[50:Ymax], na.rm = TRUE)
           prop_vals[k] <- mean(Prop[50:Ymax], na.rm = TRUE)
+          recruit_vals[k] <- mean(Rcapacity[50:Ymax], na.rm = TRUE)
         }
+
+        # Calculate Total Yield = YPR × Recruitment
+        total_yield_vals <- ypr_vals * recruit_vals
 
         curve_results <- rbind(curve_results, data.frame(
           U = U_test,
@@ -1424,7 +1459,11 @@ server <- function(input, output, session) {
           SPR_n = nsim,
           Prop_mean = mean(prop_vals, na.rm = TRUE),
           Prop_sd = sd(prop_vals, na.rm = TRUE),
-          Prop_n = nsim
+          Prop_n = nsim,
+          Recruit_mean = mean(recruit_vals, na.rm = TRUE),
+          Recruit_sd = sd(recruit_vals, na.rm = TRUE),
+          TotalYield_mean = mean(total_yield_vals, na.rm = TRUE),
+          TotalYield_sd = sd(total_yield_vals, na.rm = TRUE)
         ))
       }
 
@@ -1509,6 +1548,56 @@ server <- function(input, output, session) {
       theme_minimal()
 
     ggplotly(p)
+  })
+
+  # MSY plot (only shown when DDR is enabled)
+  output$msy_plot <- renderPlotly({
+    curve_data <- yield_curve_data()
+    req(!is.null(curve_data))
+
+    # Find MSY (maximum total yield) and corresponding U
+    msy_idx <- which.max(curve_data$TotalYield_mean)
+    msy_value <- curve_data$TotalYield_mean[msy_idx]
+    u_msy <- curve_data$U[msy_idx] * 100
+
+    # Calculate 95% prediction intervals
+    curve_data$TotalYield_lower <- curve_data$TotalYield_mean - 1.96 * curve_data$TotalYield_sd
+    curve_data$TotalYield_upper <- curve_data$TotalYield_mean + 1.96 * curve_data$TotalYield_sd
+    curve_data$Recruit_lower <- curve_data$Recruit_mean - 1.96 * curve_data$Recruit_sd
+    curve_data$Recruit_upper <- curve_data$Recruit_mean + 1.96 * curve_data$Recruit_sd
+
+    # Create dual-axis plot using plotly
+    p <- plot_ly(curve_data) %>%
+      # Total Yield (left y-axis)
+      add_ribbons(x = ~U * 100, ymin = ~TotalYield_lower, ymax = ~TotalYield_upper,
+                  fillcolor = "rgba(70, 130, 180, 0.2)", line = list(color = "transparent"),
+                  showlegend = FALSE, name = "Total Yield 95% PI") %>%
+      add_trace(x = ~U * 100, y = ~TotalYield_mean, type = "scatter", mode = "lines+markers",
+                line = list(color = "steelblue", width = 3), marker = list(size = 6),
+                name = "Total Yield (kg)", yaxis = "y1") %>%
+      # MSY marker
+      add_trace(x = u_msy, y = msy_value, type = "scatter", mode = "markers",
+                marker = list(color = "red", size = 12, symbol = "star"),
+                name = paste0("MSY = ", round(msy_value, 1), " kg at U = ", round(u_msy, 1), "%"),
+                yaxis = "y1") %>%
+      # Recruitment (right y-axis)
+      add_ribbons(x = ~U * 100, ymin = ~Recruit_lower, ymax = ~Recruit_upper,
+                  fillcolor = "rgba(34, 139, 34, 0.2)", line = list(color = "transparent"),
+                  showlegend = FALSE, name = "Recruitment 95% PI", yaxis = "y2") %>%
+      add_trace(x = ~U * 100, y = ~Recruit_mean, type = "scatter", mode = "lines+markers",
+                line = list(color = "forestgreen", width = 3, dash = "dash"),
+                marker = list(size = 6), name = "Equilibrium Recruitment", yaxis = "y2") %>%
+      # Layout with dual y-axes
+      layout(
+        title = "Maximum Sustainable Yield (MSY) Analysis",
+        xaxis = list(title = "Exploitation Rate (%)"),
+        yaxis = list(title = "Total Yield (kg)", side = "left", showgrid = FALSE),
+        yaxis2 = list(title = "Equilibrium Recruitment (number)", side = "right", overlaying = "y", showgrid = FALSE),
+        hovermode = "x unified",
+        legend = list(x = 0.7, y = 0.95)
+      )
+
+    p
   })
 
   # Download results
