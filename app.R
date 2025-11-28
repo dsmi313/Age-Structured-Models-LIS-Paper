@@ -15,14 +15,15 @@ ui <- fluidPage(
       # Species Selection
       h4("Species / Biological Parameters"),
       selectInput("species", "Species:",
-                  choices = c("Crappie" = "crappie",
+                  choices = c("White Crappie" = "white_crappie",
+                              "Black Crappie" = "black_crappie",
                               "Walleye" = "walleye",
                               "Largemouth Bass" = "lmb",
                               "Smallmouth Bass" = "smb",
                               "Channel Catfish" = "channel_catfish",
                               "Blue Catfish" = "blue_catfish",
                               "Custom" = "custom"),
-                  selected = "crappie"),
+                  selected = "white_crappie"),
 
       h5("Weight-Length Relationship: W = a × L^b"),
       helpText(tags$small(tags$em("W in kg, L in mm"))),
@@ -40,6 +41,19 @@ ui <- fluidPage(
 
       numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.1, max = 1.5, step = 0.05),
       helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (higher = more variable)"))),
+
+      h4("Recruitment Dynamics (Experimental)"),
+      checkboxInput("enable_ddr", "Enable Density-Dependent Recruitment (Beverton-Holt)", value = FALSE),
+      conditionalPanel(
+        condition = "input.enable_ddr == true",
+        sliderInput("steepness", "Steepness (h):",
+                    min = 0.2, max = 1.0, value = 0.7, step = 0.05),
+        helpText(tags$small(tags$em("h = 0.2: weak compensation (recruitment drops quickly with SSB). h = 0.8+: strong compensation (recruitment stays high even when SSB is low). Typical: h = 0.7-0.9."))),
+        br(),
+        checkboxInput("enable_depensation", "Enable Depensation (Allee Effects)", value = FALSE),
+        helpText(tags$small(tags$em("When enabled, recruitment crashes when SSB drops below 20% of unfished level. Simulates mate-finding failure, predator swamping failure, and other critical thresholds.")))
+      ),
+      br(),
 
       numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 50, step = 1),
       helpText(tags$small(tags$em("Maximum age class in the model"))),
@@ -66,6 +80,11 @@ ui <- fluidPage(
       helpText(tags$small(tags$em("Size at which fish become vulnerable to gear and regulations"))),
       numericInput("capsize", "Length at 50% Capture (mm):",
                    value = 204, min = 100, max = 300),
+
+      # Regulation type: mutually exclusive options
+      h4("Length Regulations (choose one)"),
+      helpText(tags$small(tags$em("Select either standard minimum, slot limit, OR maximum limit - not multiple"))),
+
       numericInput("harvlim", "Minimum Harvest Size (mm):",
                    value = 254, min = 150, max = 450),
 
@@ -81,6 +100,17 @@ ui <- fluidPage(
         helpText(tags$small(tags$em("Traditional: harvest ONLY between min-max. Protective: PROTECT between min-max")))
       ),
 
+      conditionalPanel(
+        condition = "input.enable_slot == false",
+        checkboxInput("enable_max_limit", "Enable Maximum Length Limit", value = FALSE),
+        conditionalPanel(
+          condition = "input.enable_max_limit == true && input.enable_slot == false",
+          numericInput("max_harvest_size", "Maximum Harvest Size (mm):",
+                       value = 500, min = 300, max = 800),
+          helpText(tags$small(tags$em("Protects all fish above this size. Harvestable window: Capture Size to Maximum Size.")))
+        )
+      ),
+
       # Mortality Parameters
       h4("Mortality"),
       helpText(tags$small(tags$em("Proportion of released fish that die"))),
@@ -92,7 +122,7 @@ ui <- fluidPage(
       numericInput("nsim", "Number of Simulations:",
                    value = 1000, min = 100, max = 10000, step = 100),
       numericInput("ymax", "Years to Simulate:",
-                   value = 100, min = 50, max = 200),
+                   value = 120, min = 50, max = 200),
 
       actionButton("run_sim", "Run Simulation", class = "btn-primary"),
       br(),
@@ -132,7 +162,20 @@ ui <- fluidPage(
 
         tabPanel("Population Structure",
                  br(),
+                 h4("Equilibrium Population Structure"),
+                 helpText("This plot shows the mean age distribution at equilibrium (final year of simulation) across all simulations.",
+                          tags$br(),
+                          tags$strong("Bars show mean abundance."), "Shaded area shows 95% prediction interval (mean ± 1.96 × SD) across simulations, representing uncertainty from recruitment variability.",
+                          tags$br(),
+                          tags$strong("Why is age-1 around ~10,000?"), "The model uses lognormal recruitment with mean ≈ 10,000. Individual simulations vary widely, but the mean across many simulations centers around 10,000."),
                  plotlyOutput("pop_structure", height = "500px"),
+                 br(),
+                 h4("Length-Frequency Distribution"),
+                 helpText("Histogram showing the distribution of fish lengths in the equilibrium population."),
+                 plotlyOutput("length_frequency", height = "400px"),
+                 br(),
+                 h4("Vulnerability by Length"),
+                 helpText("Blue curve: probability a fish is caught (capture vulnerability). Red curve: probability a caught fish is legally harvestable."),
                  plotlyOutput("vulnerability_plot", height = "400px")
         ),
 
@@ -152,66 +195,96 @@ ui <- fluidPage(
 
         tabPanel("Yield Curves",
                  br(),
-                 h4("Yield Per Recruit vs Exploitation Rate"),
-                 helpText("Shows how YPR and SPR respond to different exploitation rates with current growth and selectivity parameters.",
-                          tags$br(),
-                          tags$strong("Shaded bands show where 95% of population outcomes fall"),
-                          "due to stochastic recruitment variability (not uncertainty in the mean estimate).",
-                          tags$br(),
-                          "Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished)."),
-                 br(),
                  sliderInput("yield_curve_nsim", "Number of Simulations per Point:",
                              min = 1, max = 5000, value = 2000, step = 1),
                  actionButton("run_yield_curve", "Generate Yield Curve", class = "btn-primary"),
                  br(),
                  br(),
+                 conditionalPanel(
+                   condition = "output.yield_curve_plot",
+                   h4("Yield Per Recruit vs Exploitation Rate"),
+                   helpText("Shows how YPR and SPR respond to different exploitation rates with current growth and selectivity parameters.",
+                            tags$br(),
+                            tags$strong("Shaded bands show where 95% of population outcomes fall"),
+                            "due to stochastic recruitment variability (not uncertainty in the mean estimate).",
+                            tags$br(),
+                            "Reference lines show common SPR thresholds (40% = sustainable, 30% = overfished)."),
+                   br()
+                 ),
                  plotlyOutput("yield_curve_plot", height = "400px"),
                  plotlyOutput("spr_curve_plot", height = "400px"),
-                 plotlyOutput("prop_curve_plot", height = "400px")
+                 plotlyOutput("prop_curve_plot", height = "400px"),
+                 br(),
+
+                 conditionalPanel(
+                   condition = "input.enable_ddr == true && output.msy_plot",
+                   h4("Maximum Sustainable Yield (MSY) Analysis"),
+                   helpText("Shows total yield and equilibrium recruitment across exploitation rates.",
+                            tags$br(),
+                            tags$strong("Red star marks MSY:"), " the maximum sustainable yield and optimal exploitation rate (U_MSY).",
+                            tags$br(),
+                            tags$strong("Total Yield (blue):"), " YPR × Recruitment - the actual population-level harvest.",
+                            tags$br(),
+                            tags$strong("Recruitment (green):"), " Equilibrium recruitment at each exploitation rate (with DDR if enabled).")
+                 ),
+                 conditionalPanel(
+                   condition = "input.enable_ddr == true",
+                   plotlyOutput("msy_plot", height = "500px"),
+                   br()
+                 )
         ),
 
         tabPanel("About",
                  br(),
                  h3("Age-Structured Population Model"),
-                 p("This Shiny app implements a general age-structured population model originally developed for:"),
-                 p(em("Live-imaging sonar use in Texas crappie fisheries: Assessing population-level
-                      responses due to potential increases in exploitation.")),
+                 p("This Shiny app implements an age-structured population model with optional density-dependent recruitment, originally developed for:"),
+                 p(em("Smith, D.R., Bennett, D.L., Norman, J.D., Allen, M.S. 2025. Live-imaging sonar use in Texas crappie fisheries: Examining population-level responses due to potential increases in exploitation. Fisheries, vuae015. ",
+                   a(href = "https://doi.org/10.1093/fshmag/vuae015", "https://doi.org/10.1093/fshmag/vuae015"))),
                  br(),
                  h4("Multi-Species Capability"),
-                 p("The model now includes presets for multiple species:"),
+                 p("The model includes presets for multiple species with standardized parameters:"),
                  tags$ul(
-                   tags$li(strong("Crappie:"), "Default parameters from original study"),
-                   tags$li(strong("Walleye:"), "Standard walleye life history parameters"),
-                   tags$li(strong("Largemouth Bass:"), "Typical warmwater bass parameters"),
-                   tags$li(strong("Smallmouth Bass:"), "Smallmouth bass parameters"),
-                  tags$li(strong("Channel Catfish:"), "Parameters from FishBase/literature"),
-                  tags$li(strong("Blue Catfish:"), "Parameters from FishBase/literature"),
+                   tags$li(strong("White Crappie:"), "Empirical parameters from Smith et al. (2025)"),
+                   tags$li(strong("Black Crappie:"), "FishBase median parameters"),
+                   tags$li(strong("Walleye:"), "FishBase median parameters"),
+                   tags$li(strong("Largemouth Bass:"), "FishBase median parameters"),
+                   tags$li(strong("Smallmouth Bass:"), "FishBase median parameters"),
+                   tags$li(strong("Channel Catfish:"), "FishBase median parameters"),
+                   tags$li(strong("Blue Catfish:"), "FishBase median parameters"),
                    tags$li(strong("Custom:"), "Enter your own species-specific parameters")
                  ),
                  br(),
-                 h4("Model Description"),
+                 h4("Model Features"),
                  p("The model simulates fish populations using age-structured dynamics with:"),
                  tags$ul(
                    tags$li("Configurable age classes (species-specific maximum ages)"),
                    tags$li("Species-specific von Bertalanffy growth"),
-                   tags$li("Customizable weight-length relationships"),
+                   tags$li("Weight-length relationships from FishBase medians"),
+                   tags$li(strong("Density-dependent recruitment (DDR):"), "Optional Beverton-Holt stock-recruitment with configurable steepness"),
                    tags$li("Size-dependent vulnerability to capture and harvest"),
                    tags$li("Traditional and protective slot limit options"),
+                   tags$li("Maximum length limit option (protects trophy fish)"),
                    tags$li("Natural mortality and discard mortality"),
-                   tags$li("Stochastic recruitment (lognormal, species-specific CV)")
+                   tags$li("Stochastic recruitment with species-specific CV"),
+                   tags$li(strong("Fecundity:"), "Weight-at-age is used as a surrogate for egg production, scaled by a logistic maturity ogive")
                  ),
                  br(),
-                 h4("Outputs"),
+                 h4("Key Outputs"),
                  tags$ul(
-                   tags$li(strong("YPR:"), "Yield Per Recruit (kg)"),
-                   tags$li(strong("SPR:"), "Spawning Potential Ratio (relative to unfished)"),
-                   tags$li(strong("Prop Memorable:"), "Proportion of trophy/quality fish")
+                   tags$li(strong("YPR:"), "Yield Per Recruit (kg) - harvest per individual recruit"),
+                   tags$li(strong("SPR:"), "Spawning Potential Ratio (current SSB / unfished SSB)"),
+                   tags$li(strong("Prop Memorable:"), "Proportion of trophy/quality-sized fish in population")
                  ),
                  br(),
                  h4("References"),
-                 p("Crappie model based on work similar to Dotson et al. (2009)"),
-                 p(a(href = "https://doi.org/10.1577/M08-137.1",
-                     "https://doi.org/10.1577/M08-137.1"))
+                 p(strong("Primary citation:")),
+                 p("Smith, D.R., Bennett, D.L., Norman, J.D., Allen, M.S. 2025. Live-imaging sonar use in Texas crappie fisheries: Examining population-level responses due to potential increases in exploitation. Fisheries, vuae015. ",
+                   a(href = "https://doi.org/10.1093/fshmag/vuae015", "https://doi.org/10.1093/fshmag/vuae015")),
+                 br(),
+                 p(strong("Parameter sources:")),
+                 p("Froese, R. and D. Pauly. Editors. 2024. FishBase. World Wide Web electronic publication. ",
+                   a(href = "https://www.fishbase.org", "www.fishbase.org")),
+                 p("Gabelhouse, D.W., Jr. 1984. A length-categorization system to assess fish stocks. North American Journal of Fisheries Management 4:273-285.")
         )
       )
     )
@@ -231,95 +304,108 @@ server <- function(input, output, session) {
 
   # Species parameter presets
   observeEvent(input$species, {
-    if (input$species == "crappie") {
+    if (input$species == "white_crappie") {
+      # Smith et al. 2025 - empirical parameters from LIS study
       updateNumericInput(session, "wl_a", value = 2.40991e-6)
       updateNumericInput(session, "wl_b", value = 3.38)
-      updateNumericInput(session, "mat_size", value = 180)  # ~7 inches (literature: 6-7" typical)
+      updateNumericInput(session, "mat_size", value = 180)  # ~7 inches
       updateNumericInput(session, "memorable_size", value = 305)  # 12 inches
       updateNumericInput(session, "linf", value = 353)
       updateNumericInput(session, "vbk", value = 0.374)
       updateNumericInput(session, "t0", value = 0.197)
-      updateNumericInput(session, "nat_mort", value = 0.374)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
-      updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
-      showNotification("Loaded Crappie parameters", type = "message")
+      updateNumericInput(session, "nat_mort", value = 0.374)  # M = K
+      updateNumericInput(session, "rec_cv", value = 0.8)
+      updateNumericInput(session, "amax", value = 8)
+      showNotification("Loaded White Crappie parameters (Smith et al. 2025)", type = "message")
+
+    } else if (input$species == "black_crappie") {
+      # FishBase median weight-length and growth parameters
+      updateNumericInput(session, "wl_a", value = 1.10e-5)
+      updateNumericInput(session, "wl_b", value = 3.07)
+      updateNumericInput(session, "mat_size", value = 180)  # ~7 inches
+      updateNumericInput(session, "memorable_size", value = 305)  # 12 inches
+      updateNumericInput(session, "linf", value = 302)
+      updateNumericInput(session, "vbk", value = 0.29)
+      updateNumericInput(session, "t0", value = -0.62)
+      updateNumericInput(session, "nat_mort", value = 0.29)  # M = K
+      updateNumericInput(session, "rec_cv", value = 0.8)
+      updateNumericInput(session, "amax", value = 8)
+      showNotification("Loaded Black Crappie parameters (FishBase median)", type = "message")
 
     } else if (input$species == "walleye") {
-      # Craig et al. 1995; Weight-length from North American data
-      updateNumericInput(session, "wl_a", value = 3.52e-6)  # From log10(W) = -5.453 + 3.180*log10(L)
-      updateNumericInput(session, "wl_b", value = 3.18)
-      updateNumericInput(session, "mat_size", value = 356)  # 14 inches (female maturity lower range, literature)
+      # FishBase median parameters
+      updateNumericInput(session, "wl_a", value = 6.63e-6)
+      updateNumericInput(session, "wl_b", value = 3.10)
+      updateNumericInput(session, "mat_size", value = 356)  # 14 inches
       updateNumericInput(session, "memorable_size", value = 635)  # 25 inches (Gabelhouse 1984)
       updateNumericInput(session, "harvlim", value = 356)  # 14 inches minimum harvest size
-      updateNumericInput(session, "linf", value = 466)  # Craig et al. 1995
-      updateNumericInput(session, "vbk", value = 0.215)  # Craig et al. 1995
-      updateNumericInput(session, "t0", value = -0.632)  # Craig et al. 1995
-      updateNumericInput(session, "nat_mort", value = 0.215)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 1.1)  # Very high recruitment variability (literature: CV=112%)
-      updateNumericInput(session, "amax", value = 15)  # Walleye can live 15-20 years
-      showNotification("Loaded Walleye parameters (Craig et al. 1995)", type = "message")
+      updateNumericInput(session, "linf", value = 466)
+      updateNumericInput(session, "vbk", value = 0.215)
+      updateNumericInput(session, "t0", value = -0.632)
+      updateNumericInput(session, "nat_mort", value = 0.215)  # M = K
+      updateNumericInput(session, "rec_cv", value = 1.1)
+      updateNumericInput(session, "amax", value = 15)
+      showNotification("Loaded Walleye parameters (FishBase median)", type = "message")
 
     } else if (input$species == "lmb") {
-      # Lake Trasimeno study; averaged male/female parameters
-      updateNumericInput(session, "wl_a", value = 9.88e-6)  # From W=0.00988*L^3.15
-      updateNumericInput(session, "wl_b", value = 3.15)
-      updateNumericInput(session, "mat_size", value = 203)  # 8 inches (female maturity, literature)
+      # FishBase median parameters
+      updateNumericInput(session, "wl_a", value = 8.16e-6)
+      updateNumericInput(session, "wl_b", value = 3.10)
+      updateNumericInput(session, "mat_size", value = 203)  # 8 inches
       updateNumericInput(session, "memorable_size", value = 508)  # 20 inches (Gabelhouse 1984)
       updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
-      updateNumericInput(session, "linf", value = 450)  # Average of male/female
-      updateNumericInput(session, "vbk", value = 0.35)  # Average of male/female
+      updateNumericInput(session, "linf", value = 450)
+      updateNumericInput(session, "vbk", value = 0.35)
       updateNumericInput(session, "t0", value = 0.04)
-      updateNumericInput(session, "nat_mort", value = 0.35)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: CV>0.5)
-      updateNumericInput(session, "amax", value = 15)  # Largemouth bass can live 10-16 years
-      showNotification("Loaded Largemouth Bass parameters (literature)", type = "message")
+      updateNumericInput(session, "nat_mort", value = 0.35)  # M = K
+      updateNumericInput(session, "rec_cv", value = 0.5)
+      updateNumericInput(session, "amax", value = 12)  # Maximum age 12 years
+      showNotification("Loaded Largemouth Bass parameters (FishBase median)", type = "message")
 
     } else if (input$species == "smb") {
-      # Conservative estimates based on typical smallmouth bass populations
-      updateNumericInput(session, "wl_a", value = 1.08e-5)
+      # FishBase median parameters
+      updateNumericInput(session, "wl_a", value = 1.09e-5)
       updateNumericInput(session, "wl_b", value = 3.08)
-      updateNumericInput(session, "mat_size", value = 254)  # 10 inches (female first spawn lower range, literature)
+      updateNumericInput(session, "mat_size", value = 254)  # 10 inches
       updateNumericInput(session, "memorable_size", value = 432)  # 17 inches (Gabelhouse 1984)
       updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
       updateNumericInput(session, "linf", value = 420)
       updateNumericInput(session, "vbk", value = 0.25)
       updateNumericInput(session, "t0", value = -0.3)
-      updateNumericInput(session, "nat_mort", value = 0.25)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.7)  # Moderate-high recruitment variability (literature: CV=52-80%)
-      updateNumericInput(session, "amax", value = 15)  # Smallmouth bass can live 10-18 years
-      showNotification("Loaded Smallmouth Bass parameters (typical values)", type = "message")
+      updateNumericInput(session, "nat_mort", value = 0.25)  # M = K
+      updateNumericInput(session, "rec_cv", value = 0.7)
+      updateNumericInput(session, "amax", value = 12)  # Maximum age 12 years
+      showNotification("Loaded Smallmouth Bass parameters (FishBase median)", type = "message")
 
     } else if (input$species == "channel_catfish") {
-      # Channel catfish parameters (FishBase/literature/Gabelhouse 1984)
-      # W-L from NLLS: W(g) = 0.00522 * L(cm)^3.2293, converted to kg and mm
-      updateNumericInput(session, "wl_a", value = 3.08e-9)
-      updateNumericInput(session, "wl_b", value = 3.23)
-      updateNumericInput(session, "mat_size", value = 356)  # 14 inches (literature: female maturity)
+      # FishBase median parameters
+      updateNumericInput(session, "wl_a", value = 1.66e-6)
+      updateNumericInput(session, "wl_b", value = 3.30)
+      updateNumericInput(session, "mat_size", value = 305)  # 12 inches
       updateNumericInput(session, "memorable_size", value = 711)  # 28 inches (Gabelhouse 1984)
       updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
-      updateNumericInput(session, "linf", value = 650)  # Moderate growth
+      updateNumericInput(session, "linf", value = 650)
       updateNumericInput(session, "vbk", value = 0.18)
       updateNumericInput(session, "t0", value = -1.2)
-      updateNumericInput(session, "nat_mort", value = 0.18)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
-      updateNumericInput(session, "amax", value = 24)  # Channel catfish can live 20-24 years
-      showNotification("Loaded Channel Catfish parameters (literature/Gabelhouse 1984)", type = "message")
+      updateNumericInput(session, "nat_mort", value = 0.18)  # M = K
+      updateNumericInput(session, "rec_cv", value = 0.4)
+      updateNumericInput(session, "amax", value = 24)
+      showNotification("Loaded Channel Catfish parameters (FishBase median)", type = "message")
 
     } else if (input$species == "blue_catfish") {
-      # Blue catfish parameters (FishBase/literature/Gabelhouse 1984)
-      # W-L from FishBase Bayesian: W(g) = 0.00525 * L(cm)^3.11, converted to kg and mm
-      updateNumericInput(session, "wl_a", value = 4.08e-9)
-      updateNumericInput(session, "wl_b", value = 3.11)
-      updateNumericInput(session, "mat_size", value = 350)  # ~14 inches (female maturity lower range, literature: 35-50cm)
+      # FishBase median parameters
+      updateNumericInput(session, "wl_a", value = 7.74e-7)
+      updateNumericInput(session, "wl_b", value = 3.41)
+      updateNumericInput(session, "mat_size", value = 305)  # 12 inches
       updateNumericInput(session, "memorable_size", value = 889)  # 35 inches (Gabelhouse 1984)
       updateNumericInput(session, "harvlim", value = 305)  # 12 inches minimum harvest size
-      updateNumericInput(session, "linf", value = 900)  # Moderate growth (larger species)
-      updateNumericInput(session, "vbk", value = 0.15)
+      updateNumericInput(session, "linf", value = 850)
+      updateNumericInput(session, "vbk", value = 0.18)
       updateNumericInput(session, "t0", value = -1.2)
-      updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
-      updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: σR=0.49, Hilling et al. 2025)
-      updateNumericInput(session, "amax", value = 30)  # Blue catfish can live 25-30 years
-      showNotification("Loaded Blue Catfish parameters (literature/Gabelhouse 1984)", type = "message")
+      updateNumericInput(session, "nat_mort", value = 0.18)  # M = K
+      updateNumericInput(session, "rec_cv", value = 0.4)
+      updateNumericInput(session, "amax", value = 24)
+      showNotification("Loaded Blue Catfish parameters (FishBase median)", type = "message")
     }
     # If custom, don't update anything
   })
@@ -515,110 +601,213 @@ server <- function(input, output, session) {
 
       Age <- seq(1, Amax)
 
+      # Pre-compute age-specific variables (deterministic, same across all simulations)
+      # Natural survival
+      S <- exp(-Nat_mort)^(Age - 1)
+      So <- exp(-Nat_mort)
+
+      # Growth: length and weight at age
+      TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
+      Wt <- (alfa * TL^bet) / 1000
+
+      # Fecundity with logistic maturity ogive
+      Wmat <- (alfa * input$mat_size^bet) / 1000  # Use mean maturity size
+      maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
+      Fec <- Wt * maturity_ogive
+
+      # Capture vulnerability
+      Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+
+      # Harvest vulnerability (depends on regulation type - mutually exclusive)
+      if(input$enable_slot) {
+        # SLOT LIMIT: harvest or protect within a size range
+        Slot_upper <- input$slot_upper
+        Slot_upperSD <- 0.01
+        HarvlimSD_slot <- 0.01
+
+        # Effective minimum is the LARGER of Harvlim or Capsize
+        # (can't harvest what you can't catch!)
+        Effective_min <- max(Harvlim, Capsize)
+
+        # Logistic for minimum size (vulnerable above effective min)
+        Vulharv_above_min <- 1 / (1 + exp(-(TL - Effective_min) / HarvlimSD_slot))
+        # Logistic for maximum size (vulnerable below max)
+        Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
+
+        if(input$slot_type == "traditional") {
+          # Traditional slot: harvest ONLY within slot (min to max)
+          Vulharv <- Vulharv_above_min * Vulharv_below_max
+        } else {
+          # Protective slot: PROTECT within slot (min to max)
+          # Multiply by Vulcap to ensure fish below capture size can't be harvested
+          Vulharv <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap
+        }
+      } else if(input$enable_max_limit) {
+        # MAXIMUM LENGTH LIMIT: protect all fish above max size
+        # Minimum is automatically set to capture size (can't harvest what you can't catch!)
+        Max_harvest_size <- input$max_harvest_size
+        Max_harvestSD <- 0.01
+
+        # Use Capsize as the effective minimum (fish below capture size can't be harvested)
+        Vulharv_above_capture <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+        Vulharv_below_max <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+
+        # Harvest window: from capture size to max size
+        Vulharv <- Vulharv_above_capture * Vulharv_below_max
+      } else {
+        # STANDARD MINIMUM LENGTH LIMIT: protect fish below minimum size
+        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+      }
+
+      # Get exploitation rate
+      U <- input$exploitation
+
+      # Pre-compute mortality vector for age progression (vectorized)
+      mort_vec <- So * (1 - (Vulcap - Vulharv) * U * DisMort) * (1 - Vulharv * U)
+
+      # Pre-compute trophy vulnerability for all ages
+      trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+
+      # Convert CV to lognormal sigma (used in each simulation)
+      sigmaR <- sqrt(log(input$rec_cv^2 + 1))
+
       # Run simulations
       nsim <- input$nsim
       results <- data.frame(
         sim = 1:nsim,
         YPR = rep(NA, nsim),
         SPR = rep(NA, nsim),
-        Prop = rep(NA, nsim)
+        Prop = rep(NA, nsim),
+        MeanLengthHarvested = rep(NA, nsim)  # Mean length of harvested fish
       )
 
       # Store ALL time series data from all simulations
       all_YPR <- matrix(NA, Ymax, nsim)
       all_SPR <- matrix(NA, Ymax, nsim)
       all_Prop <- matrix(NA, Ymax, nsim)
+      all_SSB <- matrix(NA, Ymax, nsim)  # Store SSB time series
       all_Abundance <- matrix(NA, Amax, nsim)  # Store population structure from all sims
 
       for(k in 1:nsim) {
 
         incProgress(1/nsim, detail = paste("Simulation", k, "of", nsim))
 
+        # Initialize matrices for this simulation
         N <- matrix(NA, Ymax, Amax)
-        Wmat <- (alfa * rnorm(1, input$mat_size, input$mat_size * 0.1)^bet) / 1000
         Yield <- rep(NA, Ymax)
         SPRt <- rep(NA, Ymax)
         YPR <- rep(NA, Ymax)
         Prop <- rep(NA, Ymax)
+        SSBt <- rep(NA, Ymax)  # Spawning stock biomass time series
 
-        S <- exp(-Nat_mort)^(Age - 1)
-        So <- exp(-Nat_mort)
-
+        # Set initial population structure (unfished)
         N[1, 1] <- 10000
         N[1, ] <- Ro * S
 
-        # Convert CV to lognormal sigma: σ = sqrt(log(CV² + 1))
-        sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+        # Build UNFISHED equilibrium over first 20 years (establish baseline for SPR)
+        for(init_year in 2:min(20, Ymax)) {
+          # Apply unfished survival (natural mortality only, NO fishing)
+          N[init_year, 1] <- Ro * rlnorm(1, 0, sd = sigmaR)  # Stochastic recruitment in unfished population
+          N[init_year, 2:Amax] <- N[init_year-1, 1:(Amax-1)] * So  # Only natural survival
+        }
 
-        U <- input$exploitation
+        # Compute SPR denominator from unfished equilibrium (year 20 or last year if Ymax < 20)
+        SPR_denom <- sum(N[min(20, Ymax), ] * Fec)
 
-        TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
-        Wt <- (alfa * TL^bet) / 1000
-        # Fecundity with logistic maturity ogive (smoother than linear threshold)
-        maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-        Fec <- Wt * maturity_ogive
+        # Compute unfished SSB0 for DDR (from unfished equilibrium)
+        SSB0 <- sum(N[min(20, Ymax), ] * Fec)
 
-        Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
-
-        # Calculate harvest vulnerability with or without slot limit
-        if(input$enable_slot) {
-          Slot_upper <- input$slot_upper
-          # Use extremely small SD for near-step-function slot boundaries
-          Slot_upperSD <- 0.01
-          HarvlimSD_slot <- 0.01
-
-          # Logistic for minimum size (vulnerable above min)
-          Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
-          # Logistic for maximum size (vulnerable below max)
-          Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
-
-          if(input$slot_type == "traditional") {
-            # Traditional slot: harvest ONLY within slot (min to max)
-            # Zero vulnerability outside slot
-            Vulharv <- Vulharv_above_min * Vulharv_below_max
-          } else {
-            # Protective slot: PROTECT within slot (min to max)
-            # Zero vulnerability within slot, full vulnerability outside
-            Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
-          }
+        # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
+        if(isTRUE(input$enable_ddr)) {
+          # Will be calculated dynamically inside loop based on SSB
+          Rcapacity <- rep(NA, Ymax)
         } else {
-          # Standard minimum length limit only
-          Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+          # Traditional per-recruit: constant mean recruitment with noise
+          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
         }
 
-        for(i in 2:Ymax) {
-          N[i, 1] <- Rcapacity[i - 1]
-          for(j in 2:Amax) {
-            trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
+        # Get steepness if DDR is enabled
+        h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
-            # Fishing mortality = harvest mortality + release mortality
-            # Release mortality applies to fish caught but not harvested
-            N[i, j] <- N[i-1, j-1] * So *
-              (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
-              (1 - Vulharv[j-1] * U)
+        # Calculate metrics for unfished burn-in period (years 1-20)
+        for(yr in 1:min(20, Ymax)) {
+          Yield[yr] <- 0  # No fishing during burn-in
+          SSBt[yr] <- sum(N[yr, ] * Fec)  # Track SSB during burn-in
+          SPRt[yr] <- SSBt[yr] / SPR_denom  # Build toward equilibrium
+          YPR[yr] <- 0
+          Prop[yr] <- sum(trophyvul * N[yr, ]) / max(1, sum(N[yr, ]))
+        }
 
-            Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
-            SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
-            YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-            Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
+        # Main simulation loop with FISHING (starts at year 21)
+        for(i in max(21, min(21, Ymax)):Ymax) {
+          # If DDR enabled, calculate recruitment from previous year's SSB
+          if(isTRUE(input$enable_ddr)) {
+            # Calculate spawning stock biomass from PREVIOUS year
+            SSB_t <- sum(N[i-1, ] * Fec)
+
+            # Prevent negative SSB
+            SSB_t <- max(0, SSB_t)
+
+            # Beverton-Holt recruitment with steepness parameterization
+            R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
+
+            # Ensure positive recruitment, minimum 1 recruit
+            R_BH <- max(1, R_BH)
+
+            # Apply depensation (Allee effects) if enabled
+            if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
+              depensation_factor <- (SSB_t / (0.2 * SSB0))^2  # Quadratic penalty
+              R_BH <- R_BH * depensation_factor
+            }
+
+            # Add stochastic noise
+            Rcapacity[i-1] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
           }
+
+          # Set recruitment for this year
+          N[i, 1] <- Rcapacity[i - 1]
+
+          # Vectorized age progression: all ages advance in one operation
+          N[i, 2:Amax] <- N[i-1, 1:(Amax-1)] * mort_vec[1:(Amax-1)]
+
+          # Calculate annual metrics (after all ages are updated)
+          Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
+          SSBt[i] <- sum(N[i, ] * Fec)  # Spawning stock biomass
+          SPRt[i] <- SSBt[i] / SPR_denom
+          YPR[i] <- ifelse(N[i, 1] > 0, (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1], 0)
+          Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
         }
 
-        # Store results (last 50 years)
-        SPRout <- SPRt[50:Ymax]
+        # Store results (last 50 years of fished equilibrium)
+        last_50_start <- max(21, Ymax - 49)  # Ensure we don't include unfished burn-in
+        SPRout <- SPRt[last_50_start:Ymax]
         results$SPR[k] <- mean(SPRout, na.rm = TRUE)
 
-        YPRout <- YPR[50:Ymax]
+        YPRout <- YPR[last_50_start:Ymax]
         results$YPR[k] <- mean(YPRout, na.rm = TRUE)
 
-        Propout <- Prop[50:Ymax]
+        Propout <- Prop[last_50_start:Ymax]
         results$Prop[k] <- mean(Propout, na.rm = TRUE)
+
+        # Calculate mean length of harvested fish (weighted average over last 50 years)
+        harvest_lengths <- numeric(length(last_50_start:Ymax))
+        for(yr_idx in seq_along(last_50_start:Ymax)) {
+          yr <- last_50_start + yr_idx - 1
+          harvest_by_age <- N[yr, ] * Vulharv * U
+          total_harvest <- sum(harvest_by_age)
+          if(total_harvest > 0) {
+            harvest_lengths[yr_idx] <- sum(harvest_by_age * TL) / total_harvest
+          } else {
+            harvest_lengths[yr_idx] <- NA
+          }
+        }
+        results$MeanLengthHarvested[k] <- mean(harvest_lengths, na.rm = TRUE)
 
         # Store time series from this simulation
         all_YPR[, k] <- YPR
         all_SPR[, k] <- SPRt
         all_Prop[, k] <- Prop
+        all_SSB[, k] <- SSBt
 
         # Store final year abundance from this simulation
         all_Abundance[, k] <- N[Ymax, ]
@@ -632,16 +821,21 @@ server <- function(input, output, session) {
         SPR_mean = rowMeans(all_SPR, na.rm = TRUE),
         SPR_sd = apply(all_SPR, 1, sd, na.rm = TRUE),
         Prop_mean = rowMeans(all_Prop, na.rm = TRUE),
-        Prop_sd = apply(all_Prop, 1, sd, na.rm = TRUE)
+        Prop_sd = apply(all_Prop, 1, sd, na.rm = TRUE),
+        SSB_mean = rowMeans(all_SSB, na.rm = TRUE),
+        SSB_sd = apply(all_SSB, 1, sd, na.rm = TRUE)
       )
 
       # Calculate 95% prediction intervals: mean ± 1.96 × SD
-      ts_data$YPR_lower <- ts_data$YPR_mean - 1.96 * ts_data$YPR_sd
+      # Constrain to biologically valid ranges
+      ts_data$YPR_lower <- pmax(0, ts_data$YPR_mean - 1.96 * ts_data$YPR_sd)
       ts_data$YPR_upper <- ts_data$YPR_mean + 1.96 * ts_data$YPR_sd
-      ts_data$SPR_lower <- ts_data$SPR_mean - 1.96 * ts_data$SPR_sd
-      ts_data$SPR_upper <- ts_data$SPR_mean + 1.96 * ts_data$SPR_sd
-      ts_data$Prop_lower <- ts_data$Prop_mean - 1.96 * ts_data$Prop_sd
-      ts_data$Prop_upper <- ts_data$Prop_mean + 1.96 * ts_data$Prop_sd
+      ts_data$SPR_lower <- pmax(0, ts_data$SPR_mean - 1.96 * ts_data$SPR_sd)
+      ts_data$SPR_upper <- ts_data$SPR_mean + 1.96 * ts_data$SPR_sd  # Allow > 1 during burn-in
+      ts_data$Prop_lower <- pmax(0, ts_data$Prop_mean - 1.96 * ts_data$Prop_sd)
+      ts_data$Prop_upper <- pmin(1, ts_data$Prop_mean + 1.96 * ts_data$Prop_sd)
+      ts_data$SSB_lower <- pmax(0, ts_data$SSB_mean - 1.96 * ts_data$SSB_sd)
+      ts_data$SSB_upper <- ts_data$SSB_mean + 1.96 * ts_data$SSB_sd
 
       time_series_data(ts_data)
 
@@ -654,7 +848,8 @@ server <- function(input, output, session) {
         Abundance_q25 = apply(all_Abundance, 1, quantile, probs = 0.25, na.rm = TRUE),
         Abundance_q75 = apply(all_Abundance, 1, quantile, probs = 0.75, na.rm = TRUE),
         VulCapture = Vulcap,
-        VulHarvest = Vulharv
+        VulHarvest = Vulharv,
+        VulTrophy = trophyvul  # Trophy/memorable vulnerability
       )
       pop_structure_data(pop_data)
 
@@ -700,6 +895,15 @@ server <- function(input, output, session) {
     cat(sprintf("  SPR:              %.4f ± %.4f\n",
                 mean(results$SPR, na.rm = TRUE),
                 sd(results$SPR, na.rm = TRUE)))
+
+    # Convert mean length harvested to inches for display
+    mean_length_mm <- mean(results$MeanLengthHarvested, na.rm = TRUE)
+    mean_length_inches <- mean_length_mm / 25.4
+    sd_length_mm <- sd(results$MeanLengthHarvested, na.rm = TRUE)
+    sd_length_inches <- sd_length_mm / 25.4
+    cat(sprintf("  Mean Length Harvested: %.1f\" (%.0f mm) ± %.1f\" (%.0f mm)\n",
+                mean_length_inches, mean_length_mm,
+                sd_length_inches, sd_length_mm))
 
     # Management warning if SPR < 0.3
     mean_spr <- mean(results$SPR, na.rm = TRUE)
@@ -776,17 +980,24 @@ server <- function(input, output, session) {
 
     # Create separate plots for each metric with ribbons
     p1 <- ggplot(ts_data, aes(x = Year, y = YPR_mean)) +
+      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+               fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = YPR_lower, ymax = YPR_upper),
                   alpha = 0.2, fill = "steelblue") +
       geom_line(color = "steelblue", size = 1) +
+      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
       labs(title = "YPR Over Time (Mean ± 95% Prediction Interval)",
+           subtitle = "Gray shaded area: unfished burn-in period (years 1-20)",
            x = "", y = "YPR (kg)") +
       theme_minimal()
 
     p2 <- ggplot(ts_data, aes(x = Year, y = SPR_mean)) +
+      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+               fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = SPR_lower, ymax = SPR_upper),
                   alpha = 0.2, fill = "darkgreen") +
       geom_line(color = "darkgreen", size = 1) +
+      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
       geom_hline(yintercept = 0.40, linetype = "dashed", color = "orange", alpha = 0.7) +
       geom_hline(yintercept = 0.30, linetype = "dashed", color = "red", alpha = 0.7) +
       labs(title = "SPR Over Time (Mean ± 95% Prediction Interval)",
@@ -796,12 +1007,32 @@ server <- function(input, output, session) {
 
     memorable_inches <- round(input$memorable_size / 25.4, 1)
     p3 <- ggplot(ts_data, aes(x = Year, y = Prop_mean)) +
+      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+               fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = Prop_lower, ymax = Prop_upper),
                   alpha = 0.2, fill = "darkorange") +
       geom_line(color = "darkorange", size = 1) +
+      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
       labs(title = paste0("Proportion Memorable (≥", memorable_inches, "\") Over Time"),
-           subtitle = "Mean ± 95% prediction interval",
-           x = "Year", y = "Proportion") +
+           subtitle = "Mean ± 95% prediction interval | Gray: unfished burn-in",
+           x = "", y = "Proportion") +
+      theme_minimal()
+
+    # Calculate 20% SSB threshold (depensation threshold) from unfished SSB
+    SSB0_approx <- ts_data$SSB_mean[20]  # Unfished equilibrium at end of burn-in
+    depensation_threshold <- SSB0_approx * 0.2
+
+    p4 <- ggplot(ts_data, aes(x = Year, y = SSB_mean)) +
+      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+               fill = "gray", alpha = 0.2) +
+      geom_ribbon(aes(ymin = SSB_lower, ymax = SSB_upper),
+                  alpha = 0.2, fill = "purple") +
+      geom_line(color = "purple", size = 1) +
+      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_hline(yintercept = depensation_threshold, linetype = "dashed", color = "red", alpha = 0.7) +
+      labs(title = "Spawning Stock Biomass (SSB) Over Time",
+           subtitle = "Dashed red line: 20% SSB₀ (depensation threshold) | Gray: unfished burn-in",
+           x = "Year", y = "SSB (kg)") +
       theme_minimal()
 
     # Combine plots vertically
@@ -809,7 +1040,8 @@ server <- function(input, output, session) {
       ggplotly(p1),
       ggplotly(p2),
       ggplotly(p3),
-      nrows = 3,
+      ggplotly(p4),
+      nrows = 4,
       shareX = TRUE,
       titleY = TRUE
     ) %>%
@@ -845,17 +1077,71 @@ server <- function(input, output, session) {
     req(pop_structure_data())
     pop_data <- pop_structure_data()
 
-    vul_long <- pop_data %>%
-      select(Length, VulCapture, VulHarvest) %>%
-      pivot_longer(-Length, names_to = "Type", values_to = "Vulnerability")
+    # Create separate data frames for each curve with slight offset for visibility
+    capture_data <- data.frame(
+      Length = pop_data$Length,
+      Vulnerability = pop_data$VulCapture,
+      Type = "VulCapture"
+    )
+
+    # Offset harvest curve by 2mm so it doesn't completely overlap capture curve
+    harvest_data <- data.frame(
+      Length = pop_data$Length + 2,
+      Vulnerability = pop_data$VulHarvest,
+      Type = "VulHarvest"
+    )
+
+    # Offset trophy curve by 4mm so all three curves are visible
+    trophy_data <- data.frame(
+      Length = pop_data$Length + 4,
+      Vulnerability = pop_data$VulTrophy,
+      Type = "VulTrophy"
+    )
+
+    vul_long <- rbind(capture_data, harvest_data, trophy_data)
+
+    # Get the full range of length data
+    length_range <- range(pop_data$Length, na.rm = TRUE)
+    x_max <- ceiling(length_range[2] * 1.05 / 100) * 100  # Round up to nearest 100
+
+    # Get memorable size for vertical line
+    memorable_mm <- input$memorable_size
 
     p <- ggplot(vul_long, aes(x = Length, y = Vulnerability, color = Type)) +
       geom_line(size = 1.2) +
+      geom_vline(xintercept = memorable_mm, linetype = "dashed", color = "goldenrod", alpha = 0.6) +
+      annotate("text", x = memorable_mm + 15, y = 0.5, label = "Memorable\nthreshold",
+               color = "goldenrod", size = 3, hjust = 0) +
+      scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
       labs(title = "Vulnerability Curves by Length",
+           subtitle = "Curves slightly offset for visibility. Dashed line: memorable size threshold.",
            x = "Total Length (mm)", y = "Vulnerability",
            color = "Type") +
-      scale_color_manual(values = c("VulCapture" = "blue", "VulHarvest" = "red"),
-                         labels = c("Capture", "Harvest")) +
+      scale_color_manual(values = c("VulCapture" = "blue", "VulHarvest" = "red", "VulTrophy" = "goldenrod"),
+                         labels = c("Capture", "Harvest", "Trophy/Memorable")) +
+      theme_minimal()
+
+    ggplotly(p) %>%
+      layout(legend = list(orientation = "h", x = 0.5, xanchor = "center", y = -0.2))
+  })
+
+  # Length-frequency histogram
+  output$length_frequency <- renderPlotly({
+    req(pop_structure_data())
+    pop_data <- pop_structure_data()
+
+    # Get the full range of length data (same as vulnerability plot)
+    length_range <- range(pop_data$Length, na.rm = TRUE)
+    x_max <- ceiling(length_range[2] * 1.05 / 100) * 100  # Round up to nearest 100
+
+    # Create weighted histogram data
+    # For each age class, we have abundance and length
+    # We'll create a histogram showing the distribution of lengths weighted by abundance
+    p <- ggplot(pop_data, aes(x = Length, y = Abundance_median)) +
+      geom_col(fill = "steelblue", alpha = 0.7, color = "black") +
+      scale_x_continuous(limits = c(0, x_max), breaks = seq(0, x_max, by = 100), expand = c(0, 0)) +
+      labs(title = "Length-Frequency Distribution (Equilibrium)",
+           x = "Total Length (mm)", y = "Abundance") +
       theme_minimal()
 
     ggplotly(p)
@@ -1067,96 +1353,224 @@ server <- function(input, output, session) {
       Harvlim <- input$harvlim
       HarvlimSD <- Harvlim * 0.01
 
+      # ========================================================================
+      # OPTIMIZATION 1: Pre-compute ALL age-invariant calculations ONCE
+      # (These don't depend on U or simulation index k)
+      # ========================================================================
+
       Age <- seq(1, Amax)
+
+      # Natural survival
+      S <- exp(-Nat_mort)^(Age - 1)
+      So <- exp(-Nat_mort)
+
+      # Growth: length and weight at age
+      TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
+      Wt <- (alfa * TL^bet) / 1000
+
+      # Fecundity with logistic maturity ogive
+      Wmat <- (alfa * input$mat_size^bet) / 1000
+      maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
+      Fec <- Wt * maturity_ogive
+
+      # Capture vulnerability
+      Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+
+      # Harvest vulnerability (depends on regulation type - mutually exclusive)
+      if(input$enable_slot) {
+        # SLOT LIMIT: harvest or protect within a size range
+        Slot_upper <- input$slot_upper
+        Slot_upperSD <- 0.01
+        HarvlimSD_slot <- 0.01
+
+        # Effective minimum is the LARGER of Harvlim or Capsize
+        # (can't harvest what you can't catch!)
+        Effective_min <- max(Harvlim, Capsize)
+
+        Vulharv_above_min <- 1 / (1 + exp(-(TL - Effective_min) / HarvlimSD_slot))
+        Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
+
+        if(input$slot_type == "traditional") {
+          Vulharv <- Vulharv_above_min * Vulharv_below_max
+        } else {
+          # Protective slot: PROTECT within slot (min to max)
+          # Multiply by Vulcap to ensure fish below capture size can't be harvested
+          Vulharv <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap
+        }
+      } else if(input$enable_max_limit) {
+        # MAXIMUM LENGTH LIMIT: protect all fish above max size
+        # Minimum is automatically set to capture size (can't harvest what you can't catch!)
+        Max_harvest_size <- input$max_harvest_size
+        Max_harvestSD <- 0.01
+
+        # Use Capsize as the effective minimum (fish below capture size can't be harvested)
+        Vulharv_above_capture <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
+        Vulharv_below_max <- 1 / (1 + exp((TL - Max_harvest_size) / Max_harvestSD))
+
+        # Harvest window: from capture size to max size
+        Vulharv <- Vulharv_above_capture * Vulharv_below_max
+      } else {
+        # STANDARD MINIMUM LENGTH LIMIT: protect fish below minimum size
+        Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+      }
+
+      # Trophy vulnerability
+      trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap
+
+      # Pre-compute weight-harvest product (used in YPR calculation)
+      Wt_harvest <- Wt * Vulharv
+
+      # Convert CV to lognormal sigma
+      sigmaR <- sqrt(log(input$rec_cv^2 + 1))
+
+      # ========================================================================
+      # OPTIMIZATION 2: Pre-generate ALL recruitment draws at once (unless DDR enabled)
+      # ========================================================================
+
+      nsim <- input$yield_curve_nsim
+
+      # Build unfished equilibrium to get proper SPR_denom and SSB0
+      # This is used as baseline for all yield curve simulations
+      N_unfished <- matrix(NA, min(20, Ymax), Amax)
+      N_unfished[1, 1] <- 10000
+      N_unfished[1, ] <- Ro * S
+
+      for(init_year in 2:min(20, Ymax)) {
+        N_unfished[init_year, 1] <- Ro * rlnorm(1, 0, sd = sigmaR)  # Stochastic recruitment
+        N_unfished[init_year, 2:Amax] <- N_unfished[init_year-1, 1:(Amax-1)] * So
+      }
+
+      # SPR denominator and SSB0 from unfished equilibrium (year 20)
+      SPR_denom <- sum(N_unfished[min(20, Ymax), ] * Fec)
+      SSB0 <- sum(N_unfished[min(20, Ymax), ] * Fec)
+
+      # Generate recruitment (conditional on DDR)
+      if(isTRUE(input$enable_ddr)) {
+        # DDR: Will be calculated dynamically inside loop
+        Rmat <- NULL  # Not pre-generated
+      } else {
+        # Traditional: Pre-generate all recruitment values
+        Rmat <- matrix(
+          Ro * rlnorm(Ymax * nsim, 0, sd = sigmaR),
+          nrow = Ymax,
+          ncol = nsim
+        )
+      }
+
+      # Get steepness if DDR is enabled
+      h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.05)
-      nsim <- input$yield_curve_nsim
-
       curve_results <- data.frame()
 
       for(u_idx in seq_along(U_values)) {
         incProgress(1/length(U_values), detail = paste("U =", round(U_values[u_idx], 2)))
 
         U_test <- U_values[u_idx]
+
+        # Pre-compute mortality vector for this exploitation rate
+        mort_vec <- So * (1 - (Vulcap - Vulharv) * U_test * DisMort) * (1 - Vulharv * U_test)
+
+        # ========================================================================
+        # OPTIMIZATION 3: Pre-create mortality matrix (avoid repeated indexing)
+        # ========================================================================
+        mort_mat <- matrix(mort_vec[1:(Amax-1)], nrow = Ymax, ncol = Amax - 1, byrow = TRUE)
+
         ypr_vals <- numeric(nsim)
         spr_vals <- numeric(nsim)
         prop_vals <- numeric(nsim)
+        recruit_vals <- numeric(nsim)
 
         for(k in 1:nsim) {
+          # Initialize matrices for this simulation
           N <- matrix(NA, Ymax, Amax)
-          Wmat <- (alfa * rnorm(1, input$mat_size, input$mat_size * 0.1)^bet) / 1000
           YPR <- rep(NA, Ymax)
           SPRt <- rep(NA, Ymax)
           Prop <- rep(NA, Ymax)
 
-          S <- exp(-Nat_mort)^(Age - 1)
-          So <- exp(-Nat_mort)
-
+          # Set initial population structure (unfished)
           N[1, 1] <- 10000
           N[1, ] <- Ro * S
 
-          # Convert CV to lognormal sigma: σ = sqrt(log(CV² + 1))
-          sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+          # Build UNFISHED equilibrium over first 20 years
+          for(init_year in 2:min(20, Ymax)) {
+            N[init_year, 1] <- Ro * rlnorm(1, 0, sd = sigmaR)  # Stochastic recruitment
+            N[init_year, 2:Amax] <- N[init_year-1, 1:(Amax-1)] * So
+          }
 
-          U <- U_test
-
-          TL <- growth_params$Linf * (1 - exp(-growth_params$vbk * (Age - growth_params$t0)))
-          Wt <- (alfa * TL^bet) / 1000
-          # Fecundity with logistic maturity ogive (smoother than linear threshold)
-          maturity_ogive <- 1 / (1 + exp(-(Wt - Wmat) / (Wmat * 0.1)))
-          Fec <- Wt * maturity_ogive
-
-          Vulcap <- 1 / (1 + exp(-(TL - Capsize) / CapsizeSD))
-
-          # Calculate harvest vulnerability with or without slot limit
-          if(input$enable_slot) {
-            Slot_upper <- input$slot_upper
-            # Use extremely small SD for near-step-function slot boundaries
-            Slot_upperSD <- 0.01
-            HarvlimSD_slot <- 0.01
-
-            # Logistic for minimum size (vulnerable above min)
-            Vulharv_above_min <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD_slot))
-            # Logistic for maximum size (vulnerable below max)
-            Vulharv_below_max <- 1 / (1 + exp((TL - Slot_upper) / Slot_upperSD))
-
-            if(input$slot_type == "traditional") {
-              # Traditional slot: harvest ONLY within slot (min to max)
-              # Zero vulnerability outside slot
-              Vulharv <- Vulharv_above_min * Vulharv_below_max
-            } else {
-              # Protective slot: PROTECT within slot (min to max)
-              # Zero vulnerability within slot, full vulnerability outside
-              Vulharv <- 1 - (Vulharv_above_min * Vulharv_below_max)
-            }
+          # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
+          if(isTRUE(input$enable_ddr)) {
+            # Will be calculated dynamically inside loop based on SSB
+            Rcapacity <- rep(NA, Ymax)
           } else {
-            # Standard minimum length limit only
-            Vulharv <- 1 / (1 + exp(-(TL - Harvlim) / HarvlimSD))
+            # Traditional per-recruit: use pre-generated recruitment
+            Rcapacity <- Rmat[, k]
           }
 
-          for(i in 2:Ymax) {
-            N[i, 1] <- Rcapacity[i - 1]
-            for(j in 2:Amax) {
-              trophyvul <- (1 / (1 + exp(-(TL - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap[j]
+          # Calculate metrics for unfished burn-in period (years 1-20)
+          for(yr in 1:min(20, Ymax)) {
+            YPR[yr] <- 0  # No fishing during burn-in
+            SPRt[yr] <- sum(Fec * N[yr, ]) / SPR_denom
+            Prop[yr] <- sum(trophyvul * N[yr, ]) / max(1, sum(N[yr, ]))
+          }
 
-              # Fishing mortality = harvest mortality + release mortality
-              # Release mortality applies to fish caught but not harvested
-              N[i, j] <- N[i-1, j-1] * So *
-                (1 - (Vulcap[j-1] - Vulharv[j-1]) * U * DisMort) *
-                (1 - Vulharv[j-1] * U)
+          # Main simulation loop with FISHING (starts at year 21)
+          for(i in max(21, min(21, Ymax)):Ymax) {
+            # If DDR enabled, calculate recruitment from previous year's SSB
+            if(isTRUE(input$enable_ddr)) {
+              # Calculate spawning stock biomass from PREVIOUS year
+              SSB_t <- sum(N[i-1, ] * Fec)
 
-              YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
-              SPRt[i] <- (sum(N[i, ] * Fec)) / (sum(N[1, ] * Fec))
-              Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
+              # Prevent negative SSB
+              SSB_t <- max(0, SSB_t)
+
+              # Beverton-Holt recruitment with steepness parameterization
+              R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
+
+              # Ensure positive recruitment, minimum 1 recruit
+              R_BH <- max(1, R_BH)
+
+              # Apply depensation (Allee effects) if enabled
+              if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
+                depensation_factor <- (SSB_t / (0.2 * SSB0))^2  # Quadratic penalty
+                R_BH <- R_BH * depensation_factor
+              }
+
+              # Add stochastic noise
+              Rcapacity[i-1] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
             }
+
+            # Set recruitment for this year
+            N[i, 1] <- Rcapacity[i - 1]
+
+            # Vectorized age progression with pre-computed mortality matrix
+            N[i, 2:Amax] <- N[i-1, 1:(Amax-1)] * mort_mat[i, ]
+
+            # ========================================================================
+            # OPTIMIZATION 4: Minimize repeated sum() calls - cache intermediate results
+            # ========================================================================
+            N_i <- N[i, ]  # Local copy is much faster
+
+            harvest_weight <- sum(Wt_harvest * N_i)
+            fecundity_now <- sum(Fec * N_i)
+            abundance_now <- sum(N_i)
+
+            YPR[i] <- ifelse(N_i[1] > 0, (harvest_weight * U_test) / N_i[1], 0)
+            SPRt[i] <- fecundity_now / SPR_denom
+            Prop[i] <- sum(trophyvul * N_i) / abundance_now
           }
 
-          ypr_vals[k] <- mean(YPR[50:Ymax], na.rm = TRUE)
-          spr_vals[k] <- mean(SPRt[50:Ymax], na.rm = TRUE)
-          prop_vals[k] <- mean(Prop[50:Ymax], na.rm = TRUE)
+          # Calculate summary stats from last 50 fished years
+          last_50_start <- max(21, Ymax - 49)
+          ypr_vals[k] <- mean(YPR[last_50_start:Ymax], na.rm = TRUE)
+          spr_vals[k] <- mean(SPRt[last_50_start:Ymax], na.rm = TRUE)
+          prop_vals[k] <- mean(Prop[last_50_start:Ymax], na.rm = TRUE)
+          recruit_vals[k] <- mean(Rcapacity[last_50_start:Ymax], na.rm = TRUE)
         }
+
+        # Calculate Total Yield = YPR × Recruitment
+        total_yield_vals <- ypr_vals * recruit_vals
 
         curve_results <- rbind(curve_results, data.frame(
           U = U_test,
@@ -1168,7 +1582,11 @@ server <- function(input, output, session) {
           SPR_n = nsim,
           Prop_mean = mean(prop_vals, na.rm = TRUE),
           Prop_sd = sd(prop_vals, na.rm = TRUE),
-          Prop_n = nsim
+          Prop_n = nsim,
+          Recruit_mean = mean(recruit_vals, na.rm = TRUE),
+          Recruit_sd = sd(recruit_vals, na.rm = TRUE),
+          TotalYield_mean = mean(total_yield_vals, na.rm = TRUE),
+          TotalYield_sd = sd(total_yield_vals, na.rm = TRUE)
         ))
       }
 
@@ -1183,7 +1601,8 @@ server <- function(input, output, session) {
 
     # Calculate 95% prediction interval: mean ± 1.96 × SD
     # Shows where 95% of population outcomes fall due to recruitment variability
-    curve_data$YPR_lower <- curve_data$YPR_mean - 1.96 * curve_data$YPR_sd
+    # Constrain YPR to biologically valid range (cannot be negative)
+    curve_data$YPR_lower <- pmax(0, curve_data$YPR_mean - 1.96 * curve_data$YPR_sd)
     curve_data$YPR_upper <- curve_data$YPR_mean + 1.96 * curve_data$YPR_sd
 
     p <- ggplot(curve_data, aes(x = U * 100, y = YPR_mean)) +
@@ -1207,7 +1626,8 @@ server <- function(input, output, session) {
 
     # Calculate 95% prediction interval: mean ± 1.96 × SD
     # Shows where 95% of population outcomes fall due to recruitment variability
-    curve_data$SPR_lower <- curve_data$SPR_mean - 1.96 * curve_data$SPR_sd
+    # Constrain SPR lower bound to 0, allow upper to exceed 1
+    curve_data$SPR_lower <- pmax(0, curve_data$SPR_mean - 1.96 * curve_data$SPR_sd)
     curve_data$SPR_upper <- curve_data$SPR_mean + 1.96 * curve_data$SPR_sd
 
     p <- ggplot(curve_data, aes(x = U * 100, y = SPR_mean)) +
@@ -1235,8 +1655,9 @@ server <- function(input, output, session) {
 
     # Calculate 95% prediction interval: mean ± 1.96 × SD
     # Shows where 95% of population outcomes fall due to recruitment variability
-    curve_data$Prop_lower <- curve_data$Prop_mean - 1.96 * curve_data$Prop_sd
-    curve_data$Prop_upper <- curve_data$Prop_mean + 1.96 * curve_data$Prop_sd
+    # Constrain Prop to biologically valid range [0, 1]
+    curve_data$Prop_lower <- pmax(0, curve_data$Prop_mean - 1.96 * curve_data$Prop_sd)
+    curve_data$Prop_upper <- pmin(1, curve_data$Prop_mean + 1.96 * curve_data$Prop_sd)
 
     # Convert memorable size from mm to inches for display
     memorable_inches <- round(input$memorable_size / 25.4, 1)
@@ -1253,6 +1674,64 @@ server <- function(input, output, session) {
       theme_minimal()
 
     ggplotly(p)
+  })
+
+  # MSY plot (only shown when DDR is enabled)
+  output$msy_plot <- renderPlotly({
+    curve_data <- yield_curve_data()
+    req(!is.null(curve_data))
+
+    # Find MSY (maximum total yield) and corresponding U
+    msy_idx <- which.max(curve_data$TotalYield_mean)
+    msy_value <- curve_data$TotalYield_mean[msy_idx]
+    u_msy <- curve_data$U[msy_idx] * 100
+
+    # Calculate 95% prediction intervals
+    curve_data$TotalYield_lower <- curve_data$TotalYield_mean - 1.96 * curve_data$TotalYield_sd
+    curve_data$TotalYield_upper <- curve_data$TotalYield_mean + 1.96 * curve_data$TotalYield_sd
+    curve_data$Recruit_lower <- curve_data$Recruit_mean - 1.96 * curve_data$Recruit_sd
+    curve_data$Recruit_upper <- curve_data$Recruit_mean + 1.96 * curve_data$Recruit_sd
+
+    # Calculate y-axis ranges to ensure zeros align
+    # Both axes start at 0 and extend to max with 10% padding
+    yield_max <- max(curve_data$TotalYield_upper, na.rm = TRUE) * 1.1
+    recruit_max <- max(curve_data$Recruit_upper, na.rm = TRUE) * 1.1
+
+    # Create dual-axis plot using plotly
+    p <- plot_ly(curve_data) %>%
+      # Total Yield (left y-axis)
+      add_ribbons(x = ~U * 100, ymin = ~TotalYield_lower, ymax = ~TotalYield_upper,
+                  fillcolor = "rgba(70, 130, 180, 0.2)", line = list(color = "transparent"),
+                  showlegend = FALSE, name = "Total Yield 95% PI") %>%
+      add_trace(x = ~U * 100, y = ~TotalYield_mean, type = "scatter", mode = "lines+markers",
+                line = list(color = "steelblue", width = 3), marker = list(size = 6),
+                name = "Total Yield (kg)", yaxis = "y1") %>%
+      # MSY marker
+      add_trace(x = u_msy, y = msy_value, type = "scatter", mode = "markers",
+                marker = list(color = "red", size = 12, symbol = "star"),
+                name = paste0("MSY = ", round(msy_value, 1), " kg at U = ", round(u_msy, 1), "%"),
+                yaxis = "y1") %>%
+      # Recruitment (right y-axis)
+      add_ribbons(x = ~U * 100, ymin = ~Recruit_lower, ymax = ~Recruit_upper,
+                  fillcolor = "rgba(34, 139, 34, 0.2)", line = list(color = "transparent"),
+                  showlegend = FALSE, name = "Recruitment 95% PI", yaxis = "y2") %>%
+      add_trace(x = ~U * 100, y = ~Recruit_mean, type = "scatter", mode = "lines+markers",
+                line = list(color = "forestgreen", width = 3, dash = "dash"),
+                marker = list(size = 6), name = "Equilibrium Recruitment", yaxis = "y2") %>%
+      # Layout with dual y-axes (both starting at 0 to align zeros)
+      layout(
+        title = "Maximum Sustainable Yield (MSY) Analysis",
+        xaxis = list(title = "Exploitation Rate (%)"),
+        yaxis = list(title = "Total Yield (kg)", side = "left", showgrid = FALSE,
+                     range = c(0, yield_max)),
+        yaxis2 = list(title = "Equilibrium Recruitment (number)", side = "right", overlaying = "y", showgrid = FALSE,
+                      range = c(0, recruit_max)),
+        hovermode = "x unified",
+        legend = list(x = 0.7, y = 0.95),
+        margin = list(r = 100)  # Add right margin for y-axis2 title visibility
+      )
+
+    p
   })
 
   # Download results
