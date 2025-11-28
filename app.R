@@ -789,12 +789,13 @@ server <- function(input, output, session) {
       )
 
       # Calculate 95% prediction intervals: mean ± 1.96 × SD
-      ts_data$YPR_lower <- ts_data$YPR_mean - 1.96 * ts_data$YPR_sd
+      # Constrain to biologically valid ranges
+      ts_data$YPR_lower <- pmax(0, ts_data$YPR_mean - 1.96 * ts_data$YPR_sd)
       ts_data$YPR_upper <- ts_data$YPR_mean + 1.96 * ts_data$YPR_sd
-      ts_data$SPR_lower <- ts_data$SPR_mean - 1.96 * ts_data$SPR_sd
-      ts_data$SPR_upper <- ts_data$SPR_mean + 1.96 * ts_data$SPR_sd
-      ts_data$Prop_lower <- ts_data$Prop_mean - 1.96 * ts_data$Prop_sd
-      ts_data$Prop_upper <- ts_data$Prop_mean + 1.96 * ts_data$Prop_sd
+      ts_data$SPR_lower <- pmax(0, ts_data$SPR_mean - 1.96 * ts_data$SPR_sd)
+      ts_data$SPR_upper <- pmin(1, ts_data$SPR_mean + 1.96 * ts_data$SPR_sd)
+      ts_data$Prop_lower <- pmax(0, ts_data$Prop_mean - 1.96 * ts_data$Prop_sd)
+      ts_data$Prop_upper <- pmin(1, ts_data$Prop_mean + 1.96 * ts_data$Prop_sd)
 
       time_series_data(ts_data)
 
@@ -1490,7 +1491,8 @@ server <- function(input, output, session) {
 
     # Calculate 95% prediction interval: mean ± 1.96 × SD
     # Shows where 95% of population outcomes fall due to recruitment variability
-    curve_data$YPR_lower <- curve_data$YPR_mean - 1.96 * curve_data$YPR_sd
+    # Constrain YPR to biologically valid range (cannot be negative)
+    curve_data$YPR_lower <- pmax(0, curve_data$YPR_mean - 1.96 * curve_data$YPR_sd)
     curve_data$YPR_upper <- curve_data$YPR_mean + 1.96 * curve_data$YPR_sd
 
     p <- ggplot(curve_data, aes(x = U * 100, y = YPR_mean)) +
@@ -1514,8 +1516,9 @@ server <- function(input, output, session) {
 
     # Calculate 95% prediction interval: mean ± 1.96 × SD
     # Shows where 95% of population outcomes fall due to recruitment variability
-    curve_data$SPR_lower <- curve_data$SPR_mean - 1.96 * curve_data$SPR_sd
-    curve_data$SPR_upper <- curve_data$SPR_mean + 1.96 * curve_data$SPR_sd
+    # Constrain SPR to biologically valid range [0, 1]
+    curve_data$SPR_lower <- pmax(0, curve_data$SPR_mean - 1.96 * curve_data$SPR_sd)
+    curve_data$SPR_upper <- pmin(1, curve_data$SPR_mean + 1.96 * curve_data$SPR_sd)
 
     p <- ggplot(curve_data, aes(x = U * 100, y = SPR_mean)) +
       geom_line(color = "darkgreen", size = 1.5) +
@@ -1542,8 +1545,9 @@ server <- function(input, output, session) {
 
     # Calculate 95% prediction interval: mean ± 1.96 × SD
     # Shows where 95% of population outcomes fall due to recruitment variability
-    curve_data$Prop_lower <- curve_data$Prop_mean - 1.96 * curve_data$Prop_sd
-    curve_data$Prop_upper <- curve_data$Prop_mean + 1.96 * curve_data$Prop_sd
+    # Constrain Prop to biologically valid range [0, 1]
+    curve_data$Prop_lower <- pmax(0, curve_data$Prop_mean - 1.96 * curve_data$Prop_sd)
+    curve_data$Prop_upper <- pmin(1, curve_data$Prop_mean + 1.96 * curve_data$Prop_sd)
 
     # Convert memorable size from mm to inches for display
     memorable_inches <- round(input$memorable_size / 25.4, 1)
