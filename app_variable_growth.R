@@ -798,6 +798,12 @@ server <- function(input, output, session) {
         N[1, ] <- Ro * recruit_dist
 
         # Build UNFISHED equilibrium over first 20 years (NO fishing mortality)
+        # Calculate metrics for year 1 (initial unfished state)
+        Yield[1] <- 0  # No fishing during burn-in
+        SPRt[1] <- 1.0  # 100% of unfished SSB
+        YPR[1] <- 0  # No yield during burn-in
+        Prop[1] <- sum(trophyvul_bins * N[1, ]) / max(1, sum(N[1, ]))
+
         for(init_year in 2:min(20, Ymax)) {
           # Apply UNFISHED survival (natural mortality only, NO fishing)
           N_survive <- N[init_year-1, ] * Unfished_survival_bins
@@ -807,6 +813,12 @@ server <- function(input, output, session) {
 
           # Add deterministic recruitment (no stochasticity in unfished equilibrium)
           N[init_year, ] <- N[init_year, ] + Ro * recruit_dist
+
+          # Calculate metrics for burn-in years (no fishing)
+          Yield[init_year] <- 0
+          SPRt[init_year] <- 1.0  # Still at unfished equilibrium
+          YPR[init_year] <- 0
+          Prop[init_year] <- sum(trophyvul_bins * N[init_year, ]) / max(1, sum(N[init_year, ]))
         }
 
         # Pre-compute SPR denominator (unfished spawning potential at equilibrium)
@@ -1593,6 +1605,11 @@ server <- function(input, output, session) {
           # Build UNFISHED equilibrium over first 20 years (NO fishing mortality)
           N[1, ] <- Ro * recruit_dist
 
+          # Calculate metrics for year 1 (initial unfished state)
+          YPR[1] <- 0  # No fishing during burn-in
+          SPRt[1] <- 1.0  # 100% of unfished SSB
+          Prop[1] <- sum(trophyvul_bins * N[1, ]) / max(1, sum(N[1, ]))
+
           for(init_year in 2:min(20, Ymax_yield)) {
             # Apply UNFISHED survival (natural mortality only, NO fishing)
             N_survive <- N[init_year-1, ] * Unfished_survival_bins
@@ -1602,6 +1619,11 @@ server <- function(input, output, session) {
 
             # Add deterministic recruitment (no stochasticity in unfished equilibrium)
             N[init_year, ] <- N[init_year, ] + Ro * recruit_dist
+
+            # Calculate metrics for burn-in years (no fishing)
+            YPR[init_year] <- 0
+            SPRt[init_year] <- 1.0  # Still at unfished equilibrium
+            Prop[init_year] <- sum(trophyvul_bins * N[init_year, ]) / max(1, sum(N[init_year, ]))
           }
 
           # Pre-compute SPR denominator (unfished spawning potential at equilibrium)

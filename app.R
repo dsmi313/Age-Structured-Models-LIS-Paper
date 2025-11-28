@@ -713,6 +713,12 @@ server <- function(input, output, session) {
         # Get steepness if DDR is enabled
         h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
+        # Calculate metrics for year 1 (initial unfished population)
+        Yield[1] <- sum(Wt * Vulharv * N[1, ]) * U
+        SPRt[1] <- sum(N[1, ] * Fec) / SPR_denom
+        YPR[1] <- ifelse(N[1, 1] > 0, (sum(Wt * Vulharv * N[1, ]) * U) / N[1, 1], 0)
+        Prop[1] <- sum(trophyvul * N[1, ]) / sum(N[1, ])
+
         # Vectorized age progression loop
         for(i in 2:Ymax) {
           # If DDR enabled, calculate recruitment from previous year's SSB
@@ -748,7 +754,7 @@ server <- function(input, output, session) {
           # Calculate annual metrics (after all ages are updated)
           Yield[i] <- sum(Wt * Vulharv * N[i, ]) * U
           SPRt[i] <- sum(N[i, ] * Fec) / SPR_denom
-          YPR[i] <- (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1]
+          YPR[i] <- ifelse(N[i, 1] > 0, (sum(Wt * Vulharv * N[i, ]) * U) / N[i, 1], 0)
           Prop[i] <- sum(trophyvul * N[i, ]) / sum(N[i, ])
         }
 
@@ -1394,6 +1400,12 @@ server <- function(input, output, session) {
             Rcapacity <- Rmat[, k]
           }
 
+          # Calculate metrics for year 1 (initial unfished population)
+          harvest_weight_1 <- sum(Wt_harvest * N[1, ])
+          YPR[1] <- ifelse(N[1, 1] > 0, (harvest_weight_1 * U_test) / N[1, 1], 0)
+          SPRt[1] <- sum(Fec * N[1, ]) / SPR_denom
+          Prop[1] <- sum(trophyvul * N[1, ]) / sum(N[1, ])
+
           # Vectorized age progression loop
           for(i in 2:Ymax) {
             # If DDR enabled, calculate recruitment from previous year's SSB
@@ -1435,7 +1447,7 @@ server <- function(input, output, session) {
             fecundity_now <- sum(Fec * N_i)
             abundance_now <- sum(N_i)
 
-            YPR[i] <- (harvest_weight * U_test) / N_i[1]
+            YPR[i] <- ifelse(N_i[1] > 0, (harvest_weight * U_test) / N_i[1], 0)
             SPRt[i] <- fecundity_now / SPR_denom
             Prop[i] <- sum(trophyvul * N_i) / abundance_now
           }
