@@ -830,7 +830,7 @@ server <- function(input, output, session) {
         # Calculate metrics for unfished burn-in period (years 1-20)
         for(yr in 1:min(20, Ymax)) {
           Yield[yr] <- 0  # No fishing during burn-in
-          SPRt[yr] <- sum(N[yr, ] * Fec_bins) / SPR_denom
+          SPRt[yr] <- 1.0  # Unfished = 100% of unfished (by definition)
           YPR[yr] <- 0
           Prop[yr] <- sum(trophyvul_bins * N[yr, ]) / max(1, sum(N[yr, ]))
         }
@@ -1645,7 +1645,7 @@ server <- function(input, output, session) {
           # Calculate metrics for unfished burn-in period (years 1-20)
           for(yr in 1:min(20, Ymax_yield)) {
             YPR[yr] <- 0
-            SPRt[yr] <- sum(N[yr, ] * Fec_bins) / SPR_denom
+            SPRt[yr] <- 1.0  # Unfished = 100% of unfished (by definition)
             Prop[yr] <- sum(trophyvul_bins * N[yr, ]) / max(1, sum(N[yr, ]))
           }
 
