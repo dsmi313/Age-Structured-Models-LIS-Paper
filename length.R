@@ -1273,10 +1273,12 @@ server <- function(input, output, session) {
       pop_data$Abundance_lower <- pmax(0, pop_data$Abundance_lower)  # Can't be negative
       
       pop_structure_data(pop_data)
-      
+
       sim_results(results)
-    })
+
+    }
   })
+})
   
   # Summary statistics output
   output$summary_stats <- renderPrint({
