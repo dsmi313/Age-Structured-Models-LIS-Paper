@@ -797,35 +797,11 @@ server <- function(input, output, session) {
         # Start with recruitment distributed across length bins
         N[1, ] <- Ro * recruit_dist
 
-        # Build UNFISHED equilibrium over first 20 years (NO fishing mortality)
-        # Calculate metrics for year 1 (initial unfished state)
-        Yield[1] <- 0  # No fishing during burn-in
-        SPRt[1] <- 1.0  # 100% of unfished SSB
-        YPR[1] <- 0  # No yield during burn-in
-        Prop[1] <- sum(trophyvul_bins * N[1, ]) / max(1, sum(N[1, ]))
-
-        for(init_year in 2:min(20, Ymax)) {
-          # Apply UNFISHED survival (natural mortality only, NO fishing)
-          N_survive <- N[init_year-1, ] * Unfished_survival_bins
-
-          # Apply growth (move to new length bins)
-          N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
-
-          # Add deterministic recruitment (no stochasticity in unfished equilibrium)
-          N[init_year, ] <- N[init_year, ] + Ro * recruit_dist
-
-          # Calculate metrics for burn-in years (no fishing)
-          Yield[init_year] <- 0
-          SPRt[init_year] <- 1.0  # Still at unfished equilibrium
-          YPR[init_year] <- 0
-          Prop[init_year] <- sum(trophyvul_bins * N[init_year, ]) / max(1, sum(N[init_year, ]))
-        }
-
-        # Pre-compute SPR denominator (unfished spawning potential at equilibrium)
-        SPR_denom <- sum(N[min(20, Ymax), ] * Fec_bins)
+        # Pre-compute SPR denominator (unfished spawning potential)
+        SPR_denom <- sum(N[1, ] * Fec_bins)
 
         # Compute unfished SSB0 (for density-dependent recruitment)
-        SSB0 <- sum(N[min(20, Ymax), ] * Fec_bins)  # Same as SPR_denom for this model
+        SSB0 <- sum(N[1, ] * Fec_bins)
 
         # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
         if(isTRUE(input$enable_ddr)) {
@@ -839,9 +815,14 @@ server <- function(input, output, session) {
         # Get steepness if DDR is enabled
         h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
-        # Main simulation loop with stochastic recruitment
-        start_year <- min(21, Ymax)
-        for(i in start_year:Ymax) {
+        # Calculate metrics for year 1 (initial population with fishing)
+        Yield[1] <- sum(Wt_bins * Vulharv_bins * N[1, ]) * U
+        SPRt[1] <- sum(N[1, ] * Fec_bins) / SPR_denom
+        YPR[1] <- Yield[1] / max(1, Ro)
+        Prop[1] <- sum(trophyvul_bins * N[1, ]) / max(1, sum(N[1, ]))
+
+        # Main simulation loop
+        for(i in 2:Ymax) {
           # If DDR enabled, calculate recruitment from previous year's SSB
           if(isTRUE(input$enable_ddr)) {
             # Calculate spawning stock biomass from PREVIOUS year
@@ -1602,35 +1583,14 @@ server <- function(input, output, session) {
           SPRt <- rep(NA, Ymax_yield)
           Prop <- rep(NA, Ymax_yield)
 
-          # Build UNFISHED equilibrium over first 20 years (NO fishing mortality)
+          # Set initial population structure
           N[1, ] <- Ro * recruit_dist
 
-          # Calculate metrics for year 1 (initial unfished state)
-          YPR[1] <- 0  # No fishing during burn-in
-          SPRt[1] <- 1.0  # 100% of unfished SSB
-          Prop[1] <- sum(trophyvul_bins * N[1, ]) / max(1, sum(N[1, ]))
-
-          for(init_year in 2:min(20, Ymax_yield)) {
-            # Apply UNFISHED survival (natural mortality only, NO fishing)
-            N_survive <- N[init_year-1, ] * Unfished_survival_bins
-
-            # Apply growth (move to new length bins)
-            N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
-
-            # Add deterministic recruitment (no stochasticity in unfished equilibrium)
-            N[init_year, ] <- N[init_year, ] + Ro * recruit_dist
-
-            # Calculate metrics for burn-in years (no fishing)
-            YPR[init_year] <- 0
-            SPRt[init_year] <- 1.0  # Still at unfished equilibrium
-            Prop[init_year] <- sum(trophyvul_bins * N[init_year, ]) / max(1, sum(N[init_year, ]))
-          }
-
-          # Pre-compute SPR denominator (unfished spawning potential at equilibrium)
-          SPR_denom <- sum(N[min(20, Ymax_yield), ] * Fec_bins)
+          # Pre-compute SPR denominator (unfished spawning potential)
+          SPR_denom <- sum(N[1, ] * Fec_bins)
 
           # Compute unfished SSB0 (for density-dependent recruitment if enabled)
-          SSB0 <- sum(N[min(20, Ymax_yield), ] * Fec_bins)
+          SSB0 <- sum(N[1, ] * Fec_bins)
 
           # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
           if(isTRUE(input$enable_ddr)) {
@@ -1644,11 +1604,14 @@ server <- function(input, output, session) {
           # Get steepness if DDR is enabled
           h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
-          # Start main simulation after equilibrium period
-          start_year <- min(21, Ymax_yield)
+          # Calculate metrics for year 1 (initial population with fishing)
+          harvest_weight_1 <- sum(Wt_harvest_bins * N[1, ])
+          YPR[1] <- (harvest_weight_1 * U_test) / max(1, Ro)
+          SPRt[1] <- sum(Fec_bins * N[1, ]) / SPR_denom
+          Prop[1] <- sum(trophyvul_bins * N[1, ]) / max(1, sum(N[1, ]))
 
-          # Main simulation loop with FISHING mortality
-          for(i in start_year:Ymax_yield) {
+          # Main simulation loop
+          for(i in 2:Ymax_yield) {
             # If DDR enabled, calculate recruitment from previous year's SSB
             if(isTRUE(input$enable_ddr)) {
               # Calculate spawning stock biomass from PREVIOUS year
