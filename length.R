@@ -1298,9 +1298,9 @@ server <- function(input, output, session) {
     
     if(input$enable_slot) {
       slot_label <- ifelse(input$slot_type == "traditional",
-                           "Traditional Slot (keep",
-                           "Protective Slot (protect")
-      cat(sprintf("  %s %.1f - %.1f\"): %.0f - %.0f mm\n",
+                           "Traditional Slot (keep)",
+                           "Protective Slot (protect)")
+      cat(sprintf("  %s %.1f-%.1f\" (%.0f-%.0f mm)\n",
                   slot_label,
                   input$harvlim / 25.4,
                   input$slot_upper / 25.4,
