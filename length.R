@@ -606,6 +606,162 @@ server <- function(input, output, session) {
     list(Linf = input$linf, vbk = input$vbk, t0 = input$t0)
   })
 
+  build_length_bins <- function(growth_params, bin_width = 10) {
+    max_length <- ceiling(growth_params$Linf * 1.2)
+    length_bins <- seq(0, max_length, by = bin_width)
+    L_bins <- length(length_bins) - 1
+    bin_lowers <- length_bins[-length(length_bins)]
+    bin_uppers <- length_bins[-1]
+    bin_midpoints <- (bin_uppers + bin_lowers) / 2
+
+    list(
+      bin_width = bin_width,
+      length_bins = length_bins,
+      L_bins = L_bins,
+      bin_lowers = bin_lowers,
+      bin_uppers = bin_uppers,
+      bin_midpoints = bin_midpoints,
+      max_length = max_length
+    )
+  }
+
+  build_vulnerability_curves <- function(input, bin_midpoints) {
+    Capsize <- input$capsize
+    CapsizeSD <- Capsize * 0.01
+    Harvlim <- input$harvlim
+    HarvlimSD <- Harvlim * 0.01
+
+    Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
+
+    if(input$enable_slot) {
+      Slot_upper <- input$slot_upper
+      Slot_upperSD <- 0.01
+      HarvlimSD_slot <- 0.01
+      Effective_min <- max(Harvlim, Capsize)
+
+      Vulharv_above_min <- 1 / (1 + exp(-(bin_midpoints - Effective_min) / HarvlimSD_slot))
+      Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Slot_upper) / Slot_upperSD))
+
+      if(input$slot_type == "traditional") {
+        Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
+      } else {
+        Vulharv_bins <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap_bins
+      }
+    } else if(input$enable_max_limit) {
+      Max_harvest_size <- input$max_harvest_size
+      Max_harvestSD <- 0.01
+      Vulharv_above_capture <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
+      Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Max_harvest_size) / Max_harvestSD))
+      Vulharv_bins <- Vulharv_above_capture * Vulharv_below_max
+    } else {
+      Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
+    }
+
+    Vulharv_bins[bin_midpoints < Harvlim] <- 0
+
+    trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
+
+    list(
+      Vulcap_bins = Vulcap_bins,
+      Vulharv_bins = Vulharv_bins,
+      trophyvul_bins = trophyvul_bins
+    )
+  }
+
+  build_mortality <- function(input, bin_midpoints, L_bins) {
+    M_adult <- input$nat_mort
+    mat_size_val <- input$mat_size
+
+    M_bins <- rep(M_adult, L_bins)
+
+    juvenile_threshold <- mat_size_val * 0.5
+    M_bins[bin_midpoints < juvenile_threshold] <- M_adult * 2.0
+    M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < mat_size_val] <- M_adult * 1.5
+
+    S_bins <- exp(-M_bins)
+
+    list(
+      M_bins = M_bins,
+      S_bins = S_bins,
+      Unfished_survival_bins = S_bins
+    )
+  }
+
+  build_recruit_distribution <- function(growth_params, growth_cv, length_bins, bin_midpoints) {
+    age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
+    age1_sd_length <- max(0.5, age1_mean_length * growth_cv)
+
+    L_bins <- length(length_bins) - 1
+    recruit_dist <- rep(0, L_bins)
+    for(j in 1:L_bins) {
+      bin_lower <- length_bins[j]
+      bin_upper <- length_bins[j + 1]
+      prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
+      recruit_dist[j] <- max(0, prob)
+    }
+
+    if(sum(recruit_dist) > 0) {
+      recruit_dist <- recruit_dist / sum(recruit_dist)
+    } else {
+      closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
+      recruit_dist[closest_bin] <- 1.0
+    }
+
+    recruit_dist
+  }
+
+  build_static_components <- function(input, growth_params) {
+    bins <- build_length_bins(growth_params)
+    growth_cv_effective <- if (input$growth_cv == 0) 0.001 else input$growth_cv
+
+    alfa <- input$wl_a
+    bet <- input$wl_b
+
+    Wt_bins <- (alfa * bins$bin_midpoints^bet) / 1000
+    Wmat <- (alfa * input$mat_size^bet) / 1000
+    maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
+
+    fec_exp <- 1.18
+    if (input$species %in% c("white_crappie", "black_crappie")) {
+      fec_exp <- 1.27
+    }
+    Fec_bins <- (Wt_bins ^ fec_exp) * maturity_ogive_bins
+
+    vulnerabilities <- build_vulnerability_curves(input, bins$bin_midpoints)
+    mortality <- build_mortality(input, bins$bin_midpoints, bins$L_bins)
+
+    Growth_matrix <- make_growth_matrix(
+      L_bins = bins$L_bins,
+      bin_midpoints = bins$bin_midpoints,
+      bin_lowers = bins$bin_lowers,
+      bin_uppers = bins$bin_uppers,
+      growth_params = growth_params,
+      bin_width = bins$bin_width,
+      growth_cv_input = input$growth_cv,
+      growth_cv_effective = growth_cv_effective
+    )
+
+    recruit_dist <- build_recruit_distribution(
+      growth_params = growth_params,
+      growth_cv = growth_cv_effective,
+      length_bins = bins$length_bins,
+      bin_midpoints = bins$bin_midpoints
+    )
+
+    list(
+      bins = bins,
+      growth_cv_effective = growth_cv_effective,
+      Wt_bins = Wt_bins,
+      maturity_ogive_bins = maturity_ogive_bins,
+      Fec_bins = Fec_bins,
+      vulnerabilities = vulnerabilities,
+      mortality = mortality,
+      Growth_matrix = Growth_matrix,
+      recruit_dist = recruit_dist,
+      Wt_harvest_bins = Wt_bins * vulnerabilities$Vulharv_bins
+    )
+  }
+
   make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
                                  growth_params, bin_width, growth_cv_input,
                                  growth_cv_effective) {
@@ -672,6 +828,7 @@ server <- function(input, output, session) {
       
       # Get parameters
       growth_params <- get_growth_params()
+      static <- build_static_components(input, growth_params)
       Amax <- input$amax
       burn_in_years <- Amax + 20
       Ymax <- burn_in_years + 100
@@ -682,148 +839,37 @@ server <- function(input, output, session) {
       
       # Mortality
       DisMort <- input$dismort
-      Nat_mort <- input$nat_mort
-      
-      # Stock-recruit
       Ro <- 10000
-      
-      # Vulnerabilities
-      Capsize <- input$capsize
-      CapsizeSD <- Capsize * 0.01
-      Uppercap <- 380
-      UppercapSD <- Uppercap * 0.01
-      Harvlim <- input$harvlim
-      HarvlimSD <- Harvlim * 0.01
       
       # ========================================================================
       # LENGTH-STRUCTURED MODEL WITH GROWTH VARIABILITY
       # ========================================================================
       
-      # Define length bins (10mm bins)
-      bin_width <- 10
-      max_length <- ceiling(growth_params$Linf * 1.2)  # 120% of Linf to be safe
-      length_bins <- seq(0, max_length, by = bin_width)
-      L_bins <- length(length_bins) - 1  # Number of bins
-      bin_lowers <- length_bins[-length(length_bins)]
-      bin_uppers <- length_bins[-1]
-      bin_midpoints <- (bin_uppers + bin_lowers) / 2
-      
-      # Get growth CV
-      growth_cv <- input$growth_cv
-      if(growth_cv == 0) growth_cv <- 0.001  # Avoid division by zero
-      
-      # Pre-compute length-specific variables for each bin
-      # Weight at length
-      Wt_bins <- (alfa * bin_midpoints^bet) / 1000
-      
-      # Fecundity with logistic maturity ogive
-      Wmat <- (alfa * input$mat_size^bet) / 1000
-      maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
-      # ================================
-      # SPECIES-SPECIFIC FECUNDITY
-      # ================================
-      # Default exponent for ALL species = 1.18 (Barneche et al. 2018)
-      fec_exp <- 1.18
-      
-      # Crappie (white or black) use species-specific exponent = 1.27
-      if (input$species %in% c("white_crappie", "black_crappie")) {
-        fec_exp <- 1.27
-      }
-      
-      # Apply exponent to weight
-      Fec_bins <- (Wt_bins ^ fec_exp) * maturity_ogive_bins      
-      # Capture vulnerability by length
-      Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
-      
-      # Harvest vulnerability by length (depends on regulation type)
-      if(input$enable_slot) {
-        Slot_upper <- input$slot_upper
-        Slot_upperSD <- 0.01
-        HarvlimSD_slot <- 0.01
-        Effective_min <- max(Harvlim, Capsize)
-        
-        Vulharv_above_min <- 1 / (1 + exp(-(bin_midpoints - Effective_min) / HarvlimSD_slot))
-        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Slot_upper) / Slot_upperSD))
-        
-        if(input$slot_type == "traditional") {
-          Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
-        } else {
-          Vulharv_bins <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap_bins
-        }
-      } else if(input$enable_max_limit) {
-        Max_harvest_size <- input$max_harvest_size
-        Max_harvestSD <- 0.01
-        Vulharv_above_capture <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
-        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Max_harvest_size) / Max_harvestSD))
-        Vulharv_bins <- Vulharv_above_capture * Vulharv_below_max
-      } else {
-        Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
-      }
-
-      # Enforce zero harvest vulnerability below the minimum length limit for display and yield metrics
-      Vulharv_bins[bin_midpoints < Harvlim] <- 0
-      
-      # Trophy vulnerability by length
-      trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
+      # Shared static structures
+      L_bins <- static$bins$L_bins
+      bin_midpoints <- static$bins$bin_midpoints
+      growth_cv <- static$growth_cv_effective
+      Vulcap_bins <- static$vulnerabilities$Vulcap_bins
+      Vulharv_bins <- static$vulnerabilities$Vulharv_bins
+      trophyvul_bins <- static$vulnerabilities$trophyvul_bins
+      S_bins <- static$mortality$S_bins
+      Unfished_survival_bins <- static$mortality$Unfished_survival_bins
+      Growth_matrix <- static$Growth_matrix
+      Fec_bins <- static$Fec_bins
+      recruit_dist <- static$recruit_dist
+      Wt_harvest_bins <- static$Wt_harvest_bins
       
       # Get exploitation rate
       U <- input$exploitation
       
-      # ===============================================================
-      # SIZE-DEPENDENT NATURAL MORTALITY
-      # ===============================================================
-      # Juveniles (< 50% maturity): 2.0 × M_adult
-      # Subadults (50-100% maturity): 1.5 × M_adult  
-      # Adults (≥ maturity): M_adult
-      # ===============================================================
-      
-      M_adult <- Nat_mort
-      mat_size_val <- input$mat_size
-      
-      # Initialize all bins with adult mortality
-      M_bins <- rep(M_adult, L_bins)
-      
-      # Apply size-dependent schedule
-      juvenile_threshold <- mat_size_val * 0.5
-      M_bins[bin_midpoints < juvenile_threshold] <- M_adult * 2.0
-      M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < mat_size_val] <- M_adult * 1.5
-      
-      # Convert to survival rates
-      S_bins <- exp(-M_bins)
-      
-      # UNFISHED survival (natural mortality only, NO fishing)
-      Unfished_survival_bins <- S_bins
-      
-      # FISHED survival updates (replace S_annual with S_bins)
-      # Fishing mortality by length bin
       F_bins <- Vulharv_bins * U
-      
-      # Release mortality from discarded fish
+
       Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
-      
-      # Total survival WITH fishing (now uses size-dependent S_bins)
+
       Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
 
-
-
-      # ========================================================================
-      # GROWTH TRANSITION MATRIX
-      # ========================================================================
-      Growth_matrix <- make_growth_matrix(
-        L_bins = L_bins,
-        bin_midpoints = bin_midpoints,
-        bin_lowers = bin_lowers,
-        bin_uppers = bin_uppers,
-        growth_params = growth_params,
-        bin_width = bin_width,
-        growth_cv_input = input$growth_cv,
-        growth_cv_effective = growth_cv
-      )
-      
-      
-      # Convert CV to lognormal sigma (used in each simulation)
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-      
+
       # Run simulations
       nsim <- input$nsim
       results <- data.frame(
@@ -841,27 +887,6 @@ server <- function(input, output, session) {
       all_SSB <- matrix(NA, Ymax, nsim)  # Store SSB time series
       all_Abundance <- matrix(NA, L_bins, nsim)  # Store population structure from all sims
       all_AgeAbund <- matrix(NA, Amax, nsim)  # Store TRUE age structure
-      
-      # Calculate mean recruitment length (age-1) and its distribution
-      age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
-      
-      # Create recruitment length distribution (which bins do age-1 fish go into?)
-      recruit_dist <- rep(0, L_bins)
-      for(j in 1:L_bins) {
-        bin_lower <- length_bins[j]
-        bin_upper <- length_bins[j+1]
-        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
-        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
-      }
-      # Normalize and handle edge case of all zeros
-      if(sum(recruit_dist) > 0) {
-        recruit_dist <- recruit_dist / sum(recruit_dist)
-      } else {
-        # Fallback: put all recruitment in the bin closest to age1_mean_length
-        closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
-        recruit_dist[closest_bin] <- 1.0
-      }
       
       for(k in 1:nsim) {
         
@@ -1582,148 +1607,28 @@ server <- function(input, output, session) {
     withProgress(message = 'Generating yield curve...', value = 0, {
       
       growth_params <- get_growth_params()
+      static <- build_static_components(input, growth_params)
       Amax <- input$amax
       burn_in_years <- Amax + 20
       Ymax <- burn_in_years + 100
-      
-      # Weight-length equation (species-specific)
-      alfa <- input$wl_a
-      bet <- input$wl_b
-      
-      # Mortality
+
       DisMort <- input$dismort
-      Nat_mort <- input$nat_mort
-      
-      # Stock-recruit
       Ro <- 10000
-      
-      # Vulnerabilities (use current settings)
-      Capsize <- input$capsize
-      CapsizeSD <- Capsize * 0.01
-      Uppercap <- 380
-      UppercapSD <- Uppercap * 0.01
-      Harvlim <- input$harvlim
-      HarvlimSD <- Harvlim * 0.01
-      
-      # ========================================================================
-      # LENGTH-STRUCTURED YIELD CURVES (with growth variability and optional DDR)
-      # ========================================================================
-      
-      # Define length bins (10mm bins) - same as main simulation
-      bin_width <- 10
-      max_length <- ceiling(growth_params$Linf * 1.2)
-      length_bins <- seq(0, max_length, by = bin_width)
-      L_bins <- length(length_bins) - 1
-      bin_lowers <- length_bins[-length(length_bins)]
-      bin_uppers <- length_bins[-1]
-      bin_midpoints <- (bin_uppers + bin_lowers) / 2
-      
-      # Get growth CV
-      growth_cv <- input$growth_cv
-      if(growth_cv == 0) growth_cv <- 0.001
-      
-      # Pre-compute length-specific variables for each bin
-      Wt_bins <- (alfa * bin_midpoints^bet) / 1000
-      Wmat <- (alfa * input$mat_size^bet) / 1000
-      maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
-      # ================================
-      # SPECIES-SPECIFIC FECUNDITY
-      # ================================
-      # Default exponent for ALL species = 1.18 (Barneche et al. 2018)
-      fec_exp <- 1.18
-      
-      # Crappie (white or black) use species-specific exponent = 1.27
-      if (input$species %in% c("white_crappie", "black_crappie")) {
-        fec_exp <- 1.27
-      }
-      
-      # Apply exponent to weight
-      Fec_bins <- (Wt_bins ^ fec_exp) * maturity_ogive_bins      
-      Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
-      
-      # Harvest vulnerability by length (depends on regulation type)
-      if(input$enable_slot) {
-        Slot_upper <- input$slot_upper
-        Slot_upperSD <- 0.01
-        HarvlimSD_slot <- 0.01
-        Effective_min <- max(Harvlim, Capsize)
-        
-        Vulharv_above_min <- 1 / (1 + exp(-(bin_midpoints - Effective_min) / HarvlimSD_slot))
-        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Slot_upper) / Slot_upperSD))
-        
-        if(input$slot_type == "traditional") {
-          Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
-        } else {
-          Vulharv_bins <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap_bins
-        }
-      } else if(input$enable_max_limit) {
-        Max_harvest_size <- input$max_harvest_size
-        Max_harvestSD <- 0.01
-        Vulharv_above_capture <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
-        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Max_harvest_size) / Max_harvestSD))
-        Vulharv_bins <- Vulharv_above_capture * Vulharv_below_max
-      } else {
-        Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
-      }
 
-      # Enforce zero harvest vulnerability below the minimum length limit for display and yield metrics
-      Vulharv_bins[bin_midpoints < Harvlim] <- 0
+      L_bins <- static$bins$L_bins
+      bin_midpoints <- static$bins$bin_midpoints
+      growth_cv <- static$growth_cv_effective
+      Vulcap_bins <- static$vulnerabilities$Vulcap_bins
+      Vulharv_bins <- static$vulnerabilities$Vulharv_bins
+      trophyvul_bins <- static$vulnerabilities$trophyvul_bins
+      S_bins <- static$mortality$S_bins
+      Unfished_survival_bins <- static$mortality$Unfished_survival_bins
+      Growth_matrix <- static$Growth_matrix
+      Fec_bins <- static$Fec_bins
+      recruit_dist <- static$recruit_dist
+      Wt_harvest_bins <- static$Wt_harvest_bins
 
-      # Trophy vulnerability by length
-      trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
-      
-      # SIZE-DEPENDENT NATURAL MORTALITY (same as main sim)
-      M_adult <- Nat_mort
-      mat_size_val <- input$mat_size
-
-      M_bins <- rep(M_adult, L_bins)
-
-      juvenile_threshold <- mat_size_val * 0.5
-      M_bins[bin_midpoints < juvenile_threshold] <- M_adult * 2.0
-      M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < mat_size_val] <- M_adult * 1.5
-
-      S_bins <- exp(-M_bins)
-
-      # Unfished survival (natural mortality only, no fishing)
-      Unfished_survival_bins <- S_bins
-      
-      # Convert CV to lognormal sigma
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-      
-      Growth_matrix <- make_growth_matrix(
-        L_bins = L_bins,
-        bin_midpoints = bin_midpoints,
-        bin_lowers = bin_lowers,
-        bin_uppers = bin_uppers,
-        growth_params = growth_params,
-        bin_width = bin_width,
-        growth_cv_input = input$growth_cv,
-        growth_cv_effective = growth_cv
-      )
-      
-      # Calculate mean recruitment length (age-1) and its distribution
-      age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
-      
-      # Create recruitment length distribution (which bins do age-1 fish go into?)
-      recruit_dist <- rep(0, L_bins)
-      for(j in 1:L_bins) {
-        bin_lower <- length_bins[j]
-        bin_upper <- length_bins[j+1]
-        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
-        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
-      }
-      # Normalize and handle edge case of all zeros
-      if(sum(recruit_dist) > 0) {
-        recruit_dist <- recruit_dist / sum(recruit_dist)
-      } else {
-        # Fallback: put all recruitment in the bin closest to age1_mean_length
-        closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
-        recruit_dist[closest_bin] <- 1.0
-      }
-      
-      # Harvest weight by length bin (U-invariant)
-      Wt_harvest_bins <- Wt_bins * Vulharv_bins
 
       # Get number of simulations
       nsim <- input$yield_curve_nsim
