@@ -645,7 +645,9 @@ server <- function(input, output, session) {
       max_length <- ceiling(growth_params$Linf * 1.2)  # 120% of Linf to be safe
       length_bins <- seq(0, max_length, by = bin_width)
       L_bins <- length(length_bins) - 1  # Number of bins
-      bin_midpoints <- (length_bins[-1] + length_bins[-(L_bins+1)]) / 2
+      bin_lowers <- length_bins[-length(length_bins)]
+      bin_uppers <- length_bins[-1]
+      bin_midpoints <- (bin_uppers + bin_lowers) / 2
       
       # Get growth CV
       growth_cv <- input$growth_cv
@@ -746,53 +748,48 @@ server <- function(input, output, session) {
       # GROWTH TRANSITION MATRIX
       # ========================================================================
       # Create matrix: Growth_matrix[i, j] = prob of moving from bin i to bin j in one year
-      
+
       Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
-      
+
       for(i in 1:L_bins) {
         current_length <- bin_midpoints[i]
         K <- growth_params$vbk
         Linf <- growth_params$Linf
-        
+
         # von Bertalanffy annual increment
         growth_increment <- (Linf - current_length) * (1 - exp(-K))
         growth_increment <- max(0.1, growth_increment)
-        
+
+        expected_length <- current_length + growth_increment
+
         # === deterministic case when growth_cv == 0 ===
         if (input$growth_cv == 0) {
-          expected_length <- current_length + growth_increment
           next_bin <- which.min(abs(bin_midpoints - expected_length))
-          
+
           Growth_matrix[i, ] <- 0
           Growth_matrix[i, next_bin] <- 1
           next  # skip stochastic code
         }
-        
+
         # === stochastic case (normal distribution) ===
         growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-        
+
         # handle fish at/near Linf
         if(current_length >= Linf * 0.99) {
           growth_increment <- 0.1
           growth_sd <- max(1, bin_width * 0.15)
-        }
-        
-        # distribute probability
-        for(j in 1:L_bins) {
-          bin_lower <- length_bins[j]
-          bin_upper <- length_bins[j+1]
           expected_length <- current_length + growth_increment
-          
-          prob <- pnorm(bin_upper, expected_length, growth_sd) -
-            pnorm(bin_lower, expected_length, growth_sd)
-          
-          Growth_matrix[i, j] <- prob
         }
-        
+
+        probs <- pnorm(bin_uppers, expected_length, growth_sd) -
+          pnorm(bin_lowers, expected_length, growth_sd)
+
+        probs[probs < 0] <- 0
+
         # normalize row to sum to 1
-        row_sum <- sum(Growth_matrix[i, ])
+        row_sum <- sum(probs)
         if (row_sum > 0) {
-          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
+          Growth_matrix[i, ] <- probs / row_sum
         } else {
           Growth_matrix[i, i] <- 1.0
         }
@@ -873,8 +870,9 @@ server <- function(input, output, session) {
         SSB_burnin <- rep(NA, burn_in_years)
 
         # Build unfished equilibrium over burn-in period
+        newCohort <- matrix(0, Amax, L_bins)
         for(init_year in 2:min(burn_in_years, Ymax)) {
-          newCohort <- matrix(0, Amax, L_bins)
+          newCohort[] <- 0
           
           # Age progression: age a-1 → age a
           for(a in Amax:2) {
@@ -951,7 +949,7 @@ server <- function(input, output, session) {
           
           
           # Create new cohort matrix for this year
-          newCohort <- matrix(0, Amax, L_bins)
+          newCohort[] <- 0
           
           # Age progression with FISHED survival
           for(a in Amax:2) {
@@ -986,17 +984,10 @@ server <- function(input, output, session) {
         results$Prop[k] <- mean(Propout, na.rm = TRUE)
         
         # Calculate mean length of harvested fish (weighted average over last 50 years)
-        harvest_lengths <- numeric(length(last_50_start:Ymax))
-        for(yr_idx in seq_along(last_50_start:Ymax)) {
-          yr <- last_50_start + yr_idx - 1
-          harvest_by_bin <- N[yr, ] * Vulharv_bins * U
-          total_harvest <- sum(harvest_by_bin)
-          if(total_harvest > 0) {
-            harvest_lengths[yr_idx] <- sum(harvest_by_bin * bin_midpoints) / total_harvest
-          } else {
-            harvest_lengths[yr_idx] <- NA
-          }
-        }
+        harvest_window <- N[last_50_start:Ymax, , drop = FALSE] * (Vulharv_bins * U)
+        total_harvest <- rowSums(harvest_window)
+        weighted_lengths <- as.vector(harvest_window %*% bin_midpoints)
+        harvest_lengths <- ifelse(total_harvest > 0, weighted_lengths / total_harvest, NA_real_)
         results$MeanLengthHarvested[k] <- mean(harvest_lengths, na.rm = TRUE)
         
         # Store time series from this simulation
@@ -1595,7 +1586,9 @@ server <- function(input, output, session) {
       max_length <- ceiling(growth_params$Linf * 1.2)
       length_bins <- seq(0, max_length, by = bin_width)
       L_bins <- length(length_bins) - 1
-      bin_midpoints <- (length_bins[-1] + length_bins[-(L_bins+1)]) / 2
+      bin_lowers <- length_bins[-length(length_bins)]
+      bin_uppers <- length_bins[-1]
+      bin_midpoints <- (bin_uppers + bin_lowers) / 2
       
       # Get growth CV
       growth_cv <- input$growth_cv
@@ -1657,53 +1650,46 @@ server <- function(input, output, session) {
       
       # Build growth transition matrix (same as main simulation)
       Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
-      
+
       for(i in 1:L_bins) {
         current_length <- bin_midpoints[i]
         K <- growth_params$vbk
         Linf <- growth_params$Linf
-        
+
         # von Bertalanffy annual increment
         growth_increment <- (Linf - current_length) * (1 - exp(-K))
         growth_increment <- max(0.1, growth_increment)
-        
+
+        expected_length <- current_length + growth_increment
+
         # === deterministic case when growth_cv == 0 ===
         if (input$growth_cv == 0) {
-          expected_length <- current_length + growth_increment
           next_bin <- which.min(abs(bin_midpoints - expected_length))
-          
+
           Growth_matrix[i, ] <- 0
           Growth_matrix[i, next_bin] <- 1
           next  # skip stochastic code
         }
-        
+
         # === stochastic case (normal distribution) ===
         growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-        
+
         # handle fish at/near Linf
         if(current_length >= Linf * 0.99) {
           growth_increment <- 0.1
           growth_sd <- max(1, bin_width * 0.15)
-        }
-        
-        # distribute probability
-        for(j in 1:L_bins) {
-          bin_lower <- length_bins[j]
-          bin_upper <- length_bins[j+1]
           expected_length <- current_length + growth_increment
-          
-          prob <- pnorm(bin_upper, expected_length, growth_sd) -
-            pnorm(bin_lower, expected_length, growth_sd)
-          
-          Growth_matrix[i, j] <- prob
         }
-        
- 
-        
+
+        probs <- pnorm(bin_uppers, expected_length, growth_sd) -
+          pnorm(bin_lowers, expected_length, growth_sd)
+
+        probs[probs < 0] <- 0
+
         # normalize row to sum to 1
-        row_sum <- sum(Growth_matrix[i, ])
+        row_sum <- sum(probs)
         if (row_sum > 0) {
-          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
+          Growth_matrix[i, ] <- probs / row_sum
         } else {
           Growth_matrix[i, i] <- 1.0
         }
