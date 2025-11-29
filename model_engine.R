@@ -85,26 +85,27 @@ build_mortality <- function(input, length_bins) {
   )
 }
 
-build_fecundity <- function(input, length_bins) {
-  alfa <- input$wl_a
-  bet <- input$wl_b
+build_fecundity <- function(input, growth_params) {
 
-  Wt_bins <- (alfa * length_bins$bin_midpoints^bet) / 1000
-  Wmat <- (alfa * input$mat_size^bet) / 1000
-  maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
+  Amax <- input$amax
+  Age_vec <- 1:Amax
 
-  fec_exp <- 1.18
-  if (input$species %in% c("white_crappie", "black_crappie")) {
-    fec_exp <- 1.27
-  }
+  Linf <- growth_params$Linf
+  vbk  <- growth_params$vbk
+  t0   <- growth_params$t0
 
-  Fec_bins <- (Wt_bins ^ fec_exp) * maturity_ogive_bins
+  # Length-at-age
+  L_at_age <- Linf * (1 - exp(-vbk * (Age_vec - t0)))
 
-  list(
-    Wt_bins = Wt_bins,
-    maturity_ogive_bins = maturity_ogive_bins,
-    Fec_bins = Fec_bins
-  )
+  # Weight-at-age
+  wl_a <- input$wl_a
+  wl_b <- input$wl_b
+  W_at_age <- wl_a * (L_at_age ^ wl_b)
+
+  # Fecundity-at-age
+  Fec_age <- input$feca * (W_at_age ^ input$fecb)
+
+  return(Fec_age)  # length = Amax
 }
 
 build_recruit_distribution <- function(input, length_bins, growth_params = get_growth_params(input), growth_cv_effective) {
@@ -207,7 +208,15 @@ build_static_components <- function(input, growth_params = get_growth_params(inp
 
   vulnerabilities <- build_vulnerability_curves(input, length_bins$bin_midpoints)
   mortality <- build_mortality(input, length_bins)
-  fecundity <- build_fecundity(input, length_bins)
+
+  alfa <- input$wl_a
+  bet <- input$wl_b
+
+  Wt_bins <- (alfa * length_bins$bin_midpoints^bet) / 1000
+  Wmat <- (alfa * input$mat_size^bet) / 1000
+  maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
+
+  Fec_bins <- build_fecundity(input, growth_params)
 
   Growth_matrix <- build_growth_matrix(
     input = input,
@@ -225,9 +234,9 @@ build_static_components <- function(input, growth_params = get_growth_params(inp
 
   list(
     length_bins = length_bins,
-    Wt_bins = fecundity$Wt_bins,
-    maturity_ogive_bins = fecundity$maturity_ogive_bins,
-    Fec_bins = fecundity$Fec_bins,
+    Wt_bins = Wt_bins,
+    maturity_ogive_bins = maturity_ogive_bins,
+    Fec_bins = Fec_bins,
     Vulcap_bins = vulnerabilities$Vulcap_bins,
     Vulharv_bins = vulnerabilities$Vulharv_bins,
     trophyvul_bins = vulnerabilities$trophyvul_bins,
