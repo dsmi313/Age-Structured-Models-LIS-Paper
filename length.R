@@ -1672,10 +1672,20 @@ server <- function(input, output, session) {
       # Trophy vulnerability by length
       trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
       
-      # Natural mortality
-      S_annual <- exp(-Nat_mort)
-      Unfished_survival_bins <- rep(S_annual, L_bins)
-      S_bins <- Unfished_survival_bins
+      # SIZE-DEPENDENT NATURAL MORTALITY (same as main sim)
+      M_adult <- Nat_mort
+      mat_size_val <- input$mat_size
+
+      M_bins <- rep(M_adult, L_bins)
+
+      juvenile_threshold <- mat_size_val * 0.5
+      M_bins[bin_midpoints < juvenile_threshold] <- M_adult * 2.0
+      M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < mat_size_val] <- M_adult * 1.5
+
+      S_bins <- exp(-M_bins)
+
+      # Unfished survival (natural mortality only, no fishing)
+      Unfished_survival_bins <- S_bins
       
       # Convert CV to lognormal sigma
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
