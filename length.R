@@ -875,10 +875,8 @@ server <- function(input, output, session) {
           newCohort[] <- 0
           
           # Age progression: age a-1 → age a
-          for(a in Amax:2) {
-            survivors <- Cohort[a-1, ] * Unfished_survival_bins
-            newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
-          }
+          newCohort[2:Amax, ] <- (Cohort[1:(Amax-1), , drop = FALSE] *
+                                   Unfished_survival_bins) %*% Growth_matrix
           
           # Add new recruits to age-1 (stochastic; burn-in still has variability)
           newCohort[1, ] <- (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
@@ -893,22 +891,29 @@ server <- function(input, output, session) {
 
         burn_in_range <- max(1, burn_in_years - 10):burn_in_years
         SPR_denom <- mean(SSB_burnin[burn_in_range], na.rm = TRUE)
-        
-        
+
+        # Get steepness if DDR is enabled
+        h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
+
+
         # Compute unfished SSB0 for DDR (from unfished equilibrium)
         SSB0 <- SPR_denom   # same value, correct biology
-        
+
+        # Pre-compute Beverton-Holt constants for DDR
+        if (isTRUE(input$enable_ddr)) {
+          inv_denom <- 1 / max(1, SSB0 * (1 - h))
+          alpha <- (4 * h * Ro) * inv_denom
+          beta <- (5 * h - 1) * inv_denom
+        }
+
         if(isTRUE(input$enable_ddr)) {
           Rcapacity <- rep(NA, Ymax)
           Rcapacity[1] <- Ro    # seed first recruit year
         } else {
           Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
         }
-        
-        
-        # Get steepness if DDR is enabled
-        h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
-        
+
+
         # Calculate metrics for unfished burn-in period
         for(yr in 1:min(burn_in_years, Ymax)) {
           Yield[yr] <- 0  # No fishing during burn-in
@@ -934,7 +939,7 @@ server <- function(input, output, session) {
               if(is.na(SSB_t)) SSB_t <- 0
               if(is.na(SSB0))  SSB0 <- 1
               
-              R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
+              R_BH <- alpha * SSB_t / (1 + beta * SSB_t)
               R_BH <- max(1, R_BH)
               
               if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
@@ -952,10 +957,8 @@ server <- function(input, output, session) {
           newCohort[] <- 0
           
           # Age progression with FISHED survival
-          for(a in Amax:2) {
-            survivors <- Cohort[a-1, ] * Survival_bins
-            newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
-          }
+          newCohort[2:Amax, ] <- (Cohort[1:(Amax-1), , drop = FALSE] *
+                                   Survival_bins) %*% Growth_matrix
           
           # Add new recruits to age-1
           newCohort[1, ] <- Rcapacity[i] * recruit_dist
@@ -1788,20 +1791,26 @@ server <- function(input, output, session) {
           # Compute SPR denominator from unfished equilibrium
           SPR_denom <- sum(N[min(burn_in_years_yield, Ymax_yield), ] * Fec_bins)
 
+          # Get steepness if DDR is enabled
+          h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
+
           # Compute unfished SSB0 for DDR
           SSB0 <- sum(N[min(burn_in_years_yield, Ymax_yield), ] * Fec_bins)
-          
+
+          # Pre-compute Beverton-Holt constants for DDR
+          if(isTRUE(input$enable_ddr)) {
+            inv_denom <- 1 / max(1, SSB0 * (1 - h))
+            alpha <- (4 * h * Ro) * inv_denom
+            beta <- (5 * h - 1) * inv_denom
+          }
+
           if(isTRUE(input$enable_ddr)) {
             Rcapacity <- rep(NA, Ymax_yield)
             Rcapacity[1] <- Ro    # seed first recruit year
           } else {
             Rcapacity <- Ro * rlnorm(Ymax_yield, 0, sd = sigmaR)
           }
-          
-          
-          # Get steepness if DDR is enabled
-          h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
-          
+
           # Calculate metrics for unfished burn-in period
           for(yr in 1:min(burn_in_years_yield, Ymax_yield)) {
             YPR[yr] <- 0
@@ -1820,7 +1829,7 @@ server <- function(input, output, session) {
               SSB_t <- max(0, SSB_t)
               
               # Beverton-Holt recruitment with steepness parameterization
-              R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
+              R_BH <- alpha * SSB_t / (1 + beta * SSB_t)
               
               # Ensure positive recruitment, minimum 1 recruit
               R_BH <- max(1, R_BH)
