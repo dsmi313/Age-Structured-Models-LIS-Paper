@@ -1675,6 +1675,7 @@ server <- function(input, output, session) {
       # Natural mortality
       S_annual <- exp(-Nat_mort)
       Unfished_survival_bins <- rep(S_annual, L_bins)
+      S_bins <- Unfished_survival_bins
       
       # Convert CV to lognormal sigma
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
@@ -1711,17 +1712,20 @@ server <- function(input, output, session) {
         recruit_dist[closest_bin] <- 1.0
       }
       
+      # Harvest weight by length bin (U-invariant)
+      Wt_harvest_bins <- Wt_bins * Vulharv_bins
+
       # Get number of simulations
       nsim <- input$yield_curve_nsim
-      
+
       # Use the same species-specific timeline as main runs: burn-in = Amax + 20, then 100 fishing years
       burn_in_years_yield <- Amax + 20
       Ymax_yield <- burn_in_years_yield + 100
-      
+
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.1)  # Reduced resolution for speed (11 points instead of 21)
       n_points <- length(U_values)
-      
+
       # Pre-allocate results data frame for speed (avoid rbind in loop)
       curve_results <- data.frame(
         U = U_values,
@@ -1748,10 +1752,7 @@ server <- function(input, output, session) {
         # Fishing mortality and survival by length bin (for this U)
         F_bins <- Vulharv_bins * U_test
         Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U_test * DisMort
-        Survival_bins <- S_annual * (1 - F_bins) * (1 - Release_mort_bins)
-        
-        # Harvest weight by length bin
-        Wt_harvest_bins <- Wt_bins * Vulharv_bins
+        Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
         
         ypr_vals <- numeric(nsim)
         spr_vals <- numeric(nsim)
