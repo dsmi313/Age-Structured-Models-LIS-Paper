@@ -1,3 +1,4 @@
+#model engine app
 source("model_engine.R")
 
 library(shiny)
@@ -205,7 +206,7 @@ ui <- fluidPage(
                  br(),
                  br(),
                  conditionalPanel(
-                   condition = "input.enable_ddr == true && output.msy_plot",
+                   condition = "input.enable_ddr == true",
                    h4("Maximum Sustainable Yield (MSY) Analysis"),
                    helpText("Shows total yield and equilibrium recruitment across exploitation rates.",
                             tags$br(),
@@ -213,10 +214,7 @@ ui <- fluidPage(
                             tags$br(),
                             tags$strong("Total Yield (blue):"), " YPR × Recruitment - the actual population-level harvest.",
                             tags$br(),
-                            tags$strong("Recruitment (green):"), " Equilibrium recruitment at each exploitation rate (with DDR if enabled).")
-                 ),
-                 conditionalPanel(
-                   condition = "input.enable_ddr == true",
+                            tags$strong("Recruitment (green):"), " Equilibrium recruitment at each exploitation rate (with DDR if enabled)."),
                    plotlyOutput("msy_plot", height = "500px"),
                    br()
                  ),
@@ -418,7 +416,7 @@ server <- function(input, output, session) {
     }
     # If custom, don't update anything
   })
-
+  
   # Keep simulation length tied to maximum age (burn-in + 100 years)
   observe({
     req(input$amax)
@@ -606,7 +604,7 @@ server <- function(input, output, session) {
   observeEvent(input$run_sim, {
     withProgress(message = 'Running simulation...', value = 0, {
       static <- build_static_components_from_input(input)
-
+      
       sim_out <- run_population_simulation(
         U = input$exploitation,
         input = input,
@@ -615,13 +613,13 @@ server <- function(input, output, session) {
         store_details = TRUE,
         progress_cb = function(value, detail = NULL) incProgress(value, detail = detail)
       )
-
+      
       time_series_data(sim_out$time_series)
       pop_structure_data(sim_out$pop_structure)
       sim_results(sim_out$results)
     })
   })
-
+  
   # Summary statistics output
   output$summary_stats <- renderPrint({
     req(sim_results())
@@ -747,7 +745,7 @@ server <- function(input, output, session) {
     if (is.null(burn_in)) {
       burn_in <- min(input$ymax, max(20, input$amax + 20))
     }
-
+    
     # Create separate plots for each metric with ribbons
     # Add shaded region for unfished burn-in period (species-specific)
     p1 <- ggplot(ts_data, aes(x = Year, y = YPR_mean)) +
@@ -1106,7 +1104,7 @@ server <- function(input, output, session) {
   observeEvent(input$run_yield_curve, {
     withProgress(message = 'Generating yield curve...', value = 0, {
       static <- build_static_components_from_input(input)
-
+      
       curve_results <- run_yield_curve_simulation(
         input = input,
         static = static,
@@ -1114,11 +1112,11 @@ server <- function(input, output, session) {
         nsim = input$yield_curve_nsim,
         progress_cb = function(value, detail = NULL) incProgress(value, detail = detail)
       )
-
+      
       yield_curve_data(curve_results)
     })
   })
-
+  
   # MSY plot (Total Yield and Recruitment)
   output$msy_plot <- renderPlotly({
     curve_data <- yield_curve_data()
