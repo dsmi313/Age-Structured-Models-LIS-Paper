@@ -275,9 +275,6 @@ simulate_population <- function(U, static, params) {
   Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
   Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
 
-  Harv_bins <- Vulharv_bins * (1 - U)
-  Harv_bins[bin_midpoints < Harvlim] <- 0
-
   YPR <- matrix(0, nrow = Ymax, ncol = params$nsim)
   SPRt <- matrix(0, nrow = Ymax, ncol = params$nsim)
   Prop <- matrix(0, nrow = Ymax, ncol = params$nsim)
@@ -288,92 +285,120 @@ simulate_population <- function(U, static, params) {
   all_Abundance <- matrix(0, nrow = L_bins, ncol = params$nsim)
   all_AgeAbund <- matrix(0, nrow = Amax, ncol = params$nsim)
 
-  Cohort <- matrix(0, nrow = Amax, ncol = L_bins)
-  Cohort[1, ] <- Ro * recruit_dist
-
-  N[1, ] <- colSums(Cohort)
-  SSB0 <- sum(N[1, ] * Wt_bins * static$maturity_ogive_bins)
-
-  alpha_beta <- NULL
-  if (isTRUE(params$enable_ddr)) {
-    alpha_beta <- bh_params(h = params$steepness, Ro = Ro, SSB0 = SSB0)
-  }
+  burn_in_span <- min(burn_in_years, Ymax)
 
   for(k in 1:params$nsim) {
-    Cohort[,] <- 0
+    Cohort <- matrix(0, nrow = Amax, ncol = L_bins)
     Cohort[1, ] <- Ro * recruit_dist
 
-    for(t in 1:burn_in_years) {
-      Cohort[2:Amax, ] <- (Cohort[1:(Amax - 1), , drop = FALSE] * Unfished_survival_bins) %*% Growth_matrix
-      Cohort[Amax, ] <- Cohort[Amax, ] + ((Cohort[Amax, ] * Unfished_survival_bins) %*% Growth_matrix)[1, ]
+    N[1, ] <- colSums(Cohort)
 
-      SSB <- sum(rowSums(Cohort) * Fec_bins)
+    SSB_burnin <- rep(NA_real_, burn_in_span)
+    SSB_burnin[1] <- sum(rowSums(Cohort) * Fec_bins)
+
+    if (isTRUE(params$enable_ddr)) {
+      alpha_beta <- NULL
+      # placeholder to avoid R CMD check notes when unused without DDR
+    }
+
+    for(t in 2:burn_in_span) {
+      newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
+      for(a in Amax:2) {
+        survivors <- Cohort[a - 1, ] * Unfished_survival_bins
+        newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
+      }
 
       R <- Ro
       if (isTRUE(params$enable_ddr)) {
-        R <- alpha_beta$alpha * SSB / (1 + alpha_beta$beta * SSB)
+        if (is.null(alpha_beta)) {
+          alpha_beta <- bh_params(h = params$steepness, Ro = Ro, SSB0 = SSB_burnin[1])
+        }
+        R <- alpha_beta$alpha * SSB_burnin[t - 1] / (1 + alpha_beta$beta * SSB_burnin[t - 1])
       }
       if (isTRUE(params$enable_depensation) && isTRUE(params$enable_ddr)) {
-        depensation_threshold <- 0.2 * SSB0
-        if (SSB < depensation_threshold) {
-          R <- R * (SSB / depensation_threshold)^2
+        depensation_threshold <- 0.2 * SSB_burnin[1]
+        if (SSB_burnin[t - 1] < depensation_threshold) {
+          R <- R * (SSB_burnin[t - 1] / depensation_threshold)^2
         }
       }
 
       R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
-      Cohort[1, ] <- R * recruit_dist
+      newCohort[1, ] <- R * recruit_dist
+
+      Cohort <- newCohort
+      N[t, ] <- colSums(Cohort)
+      SSB_burnin[t] <- sum(rowSums(Cohort) * Fec_bins)
     }
 
-    for(t in (burn_in_years + 1):Ymax) {
-      Cohort[2:Amax, ] <- (Cohort[1:(Amax - 1), , drop = FALSE] * Survival_bins) %*% Growth_matrix
-      Cohort[Amax, ] <- Cohort[Amax, ] + ((Cohort[Amax, ] * Survival_bins) %*% Growth_matrix)[1, ]
+    burn_in_window_start <- max(1, burn_in_span - 10 + 1)
+    SPR_denom <- mean(SSB_burnin[burn_in_window_start:burn_in_span], na.rm = TRUE)
+    SSB0 <- SPR_denom
 
-      Harvested <- Cohort * Harv_bins[col(Cohort)]
-      Harvested[Cohort * Harv_bins[col(Cohort)] < 0] <- 0
-      Harvested[bin_midpoints[col(Cohort)] < Harvlim] <- 0
+    if (isTRUE(params$enable_ddr)) {
+      alpha_beta <- bh_params(h = params$steepness, Ro = Ro, SSB0 = SSB0)
+    }
 
-      Trophies <- Cohort * trophyvul_bins[col(Cohort)]
+    if (isTRUE(params$enable_ddr)) {
+      Rcapacity <- rep(NA_real_, Ymax)
+      Rcapacity[1:burn_in_span] <- Ro
+    } else {
+      Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+    }
 
-      Cohort[,] <- Cohort * (1 - Harv_bins[col(Cohort)])
+    for(yr in 1:burn_in_span) {
+      Yield <- 0
+      SSB_now <- sum(rowSums(Cohort) * Fec_bins)
+      SSBt[yr, k] <- SSB_now
+      SPRt[yr, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
+      YPR[yr, k] <- 0
+      Prop[yr, k] <- ifelse(sum(N[yr, ]) > 0, sum(trophyvul_bins * N[yr, ]) / sum(N[yr, ]), 0)
+    }
 
-      Cohort[2:Amax, ] <- (Cohort[1:(Amax - 1), , drop = FALSE] * Survival_bins) %*% Growth_matrix
-      Cohort[Amax, ] <- Cohort[Amax, ] + ((Cohort[Amax, ] * Survival_bins) %*% Growth_matrix)[1, ]
+    start_year <- min(burn_in_span + 1, Ymax)
+    for(t in start_year:Ymax) {
+      if (isTRUE(params$enable_ddr)) {
+        if (t == start_year) {
+          Rcapacity[t] <- Rcapacity[t - 1]
+        } else {
+          SSB_prev <- sum(rowSums(Cohort) * Fec_bins)
+          SSB_prev <- max(0, SSB_prev)
+          R_BH <- alpha_beta$alpha * SSB_prev / (1 + alpha_beta$beta * SSB_prev)
+          R_BH <- max(1, R_BH)
+          if (isTRUE(params$enable_depensation) && SSB_prev < 0.2 * SSB0) {
+            depensation_factor <- (SSB_prev / (0.2 * SSB0))^2
+            R_BH <- R_BH * depensation_factor
+          }
+          Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+        }
+      }
 
-      SSB <- sum(rowSums(Cohort) * Fec_bins)
+      newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
+      for(a in Amax:2) {
+        survivors <- Cohort[a - 1, ] * Survival_bins
+        newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
+      }
 
-      Yield_weight <- sum(colSums(Harvested) * Wt_bins)
-      Trophy_prop <- ifelse(sum(Cohort) > 0, sum(colSums(Trophies)) / sum(Cohort), 0)
+      newCohort[1, ] <- Rcapacity[t] * recruit_dist
 
-      harvest_counts_by_bin <- colSums(Harvested)
-      harvest_total <- sum(harvest_counts_by_bin)
+      Cohort <- newCohort
+      N[t, ] <- colSums(Cohort)
+
+      Yield_weight <- sum(Wt_bins * Vulharv_bins * N[t, ]) * U
+      SSB_now <- sum(rowSums(Cohort) * Fec_bins)
+      Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
+
+      YPR[t, k] <- Yield_weight / max(1, Rcapacity[t])
+      SSBt[t, k] <- SSB_now
+      SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
+      Prop[t, k] <- Trophy_prop
+
+      harvest_by_bin <- N[t, ] * Vulharv_bins * U
+      harvest_total <- sum(harvest_by_bin)
       mean_harvest_length[t, k] <- if (harvest_total > 0) {
-        sum(harvest_counts_by_bin * bin_midpoints) / harvest_total
+        sum(harvest_by_bin * bin_midpoints) / harvest_total
       } else {
         NA_real_
       }
-
-      YPR[t, k] <- Yield_weight
-      SSBt[t, k] <- SSB
-      Prop[t, k] <- Trophy_prop
-
-      SPR_val <- sum(rowSums(Cohort) * Fec_bins) / SSB0
-      SPRt[t, k] <- SPR_val
-
-      R <- Ro
-      if (isTRUE(params$enable_ddr)) {
-        R <- alpha_beta$alpha * SSB / (1 + alpha_beta$beta * SSB)
-      }
-      if (isTRUE(params$enable_depensation) && isTRUE(params$enable_ddr)) {
-        depensation_threshold <- 0.2 * SSB0
-        if (SSB < depensation_threshold) {
-          R <- R * (SSB / depensation_threshold)^2
-        }
-      }
-
-      R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
-      Cohort[1, ] <- R * recruit_dist
-
-      N[t, ] <- colSums(Cohort)
 
       if (!is.null(params$progress)) {
         params$progress(1/params$nsim)
@@ -387,7 +412,7 @@ simulate_population <- function(U, static, params) {
       Recruit = sum(Cohort)
     )
 
-    last_50_start <- max(burn_in_years + 1, Ymax - 49)
+    last_50_start <- max(start_year, Ymax - 49)
     results$MeanLengthHarvested <- mean(mean_harvest_length[last_50_start:Ymax, k], na.rm = TRUE)
 
     if (k == 1) {
