@@ -167,7 +167,7 @@ ui <- fluidPage(
         tabPanel("Population Structure",
                  br(),
                  h4("Age Distribution at Equilibrium"),
-                 helpText("Shows the number of fish in each age class at equilibrium. Ages are inferred from length using the von Bertalanffy growth equation.",
+                 helpText("Shows the number of fish in each age class at equilibrium. Ages are tracked directly from recruited cohorts through the simulation (no back-calculation).",
                           tags$br(),
                           tags$strong("Bars show mean abundance."), "Shaded area shows 95% prediction interval (mean ± 1.96 × SD) across simulations, representing uncertainty from recruitment variability and growth variation."),
                  plotlyOutput("pop_structure", height = "500px"),
@@ -788,7 +788,8 @@ server <- function(input, output, session) {
       all_SPR <- matrix(NA, Ymax, nsim)
       all_Prop <- matrix(NA, Ymax, nsim)
       all_SSB <- matrix(NA, Ymax, nsim)  # Store SSB time series
-      all_Abundance <- matrix(NA, L_bins, nsim)  # Store population structure from all sims
+      all_Abundance <- matrix(NA, L_bins, nsim)  # Store population length structure from all sims
+      all_AgeAbundance <- matrix(NA, Amax, nsim) # Store population age structure from all sims
       
       # Calculate mean recruitment length (age-1) and its distribution
       age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
@@ -819,6 +820,7 @@ server <- function(input, output, session) {
         
         # Initialize matrices for this simulation (LENGTH-STRUCTURED)
         N <- matrix(0, Ymax, L_bins)  # Abundance by year and length bin
+        age_len <- matrix(0, Amax, L_bins)  # Track cohorts by age across length bins
         Yield <- rep(NA, Ymax)
         SPRt <- rep(NA, Ymax)
         YPR <- rep(NA, Ymax)
@@ -827,7 +829,8 @@ server <- function(input, output, session) {
         
         # Set initial population structure (UNFISHED equilibrium in length bins)
         # Start with recruitment distributed across length bins
-        N[1, ] <- Ro * recruit_dist
+        age_len[1, ] <- Ro * recruit_dist
+        N[1, ] <- colSums(age_len)
         
         # Track SSB during burn-in for SPR baseline
         SSB_burnin <- rep(NA, burnin_years)
@@ -835,15 +838,22 @@ server <- function(input, output, session) {
         
         # Build UNFISHED equilibrium over the burn-in window (establish baseline for SPR)
         for(init_year in 2:burnin_years) {
-          # Apply UNFISHED survival (natural mortality only, NO fishing)
-          N_survive <- N[init_year-1, ] * Unfished_survival_bins
-          
-          # Apply growth (move to new length bins)
-          N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
-          
+          # Apply UNFISHED survival (natural mortality only, NO fishing) by age
+          age_survive <- age_len * matrix(Unfished_survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
+
+          # Apply growth (move to new length bins) for each age, then increment age
+          new_age_len <- matrix(0, Amax, L_bins)
+          for(a in 1:(Amax - 1)) {
+            grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
+            new_age_len[a + 1, ] <- grown
+          }
+
           # Add stochastic recruitment (unfished populations still have recruitment variability)
-          N[init_year, ] <- N[init_year, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
-          
+          new_age_len[1, ] <- new_age_len[1, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
+
+          age_len <- new_age_len
+          N[init_year, ] <- colSums(age_len)
+
           # Track SSB for this burn-in year
           SSB_burnin[init_year] <- sum(N[init_year, ] * Fec_bins)
         }
@@ -903,14 +913,21 @@ server <- function(input, output, session) {
             Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
           }
           
-          # Apply survival to previous year's population
-          N_survive <- N[i-1, ] * Survival_bins
-          
-          # Apply growth (transition to new length bins)
-          N[i, ] <- as.vector(N_survive %*% Growth_matrix)
-          
-          # Add stochastic recruitment distributed across length bins
-          N[i, ] <- N[i, ] + Rcapacity[i] * recruit_dist
+          # Apply survival to previous year's population by age
+          age_survive <- age_len * matrix(Survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
+
+          # Apply growth (transition to new length bins) and age the cohorts
+          new_age_len <- matrix(0, Amax, L_bins)
+          for(a in 1:(Amax - 1)) {
+            grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
+            new_age_len[a + 1, ] <- grown
+          }
+
+          # Add stochastic recruitment distributed across length bins to age-1
+          new_age_len[1, ] <- new_age_len[1, ] + Rcapacity[i] * recruit_dist
+
+          age_len <- new_age_len
+          N[i, ] <- colSums(age_len)
           
           # Calculate annual metrics
           total_recruits <- Rcapacity[i]  # Now correctly using actual recruitment
@@ -959,6 +976,7 @@ server <- function(input, output, session) {
         
         # Store final year abundance from this simulation
         all_Abundance[, k] <- N[Ymax, ]
+        all_AgeAbundance[, k] <- rowSums(age_len)
       }
       
       # Calculate mean and SD across all simulations at each year
@@ -990,8 +1008,8 @@ server <- function(input, output, session) {
       time_series_data(ts_data)
       
       # Calculate mean, median, and 95% prediction intervals for population structure
-      # Now using LENGTH BINS instead of age classes
-      pop_data <- data.frame(
+      # LENGTH distribution
+      length_data <- data.frame(
         Length = bin_midpoints,
         Weight = Wt_bins,
         Abundance_mean = rowMeans(all_Abundance, na.rm = TRUE),
@@ -1004,11 +1022,23 @@ server <- function(input, output, session) {
         VulTrophy = trophyvul_bins  # Trophy/memorable vulnerability
       )
       # Calculate 95% prediction intervals: mean ± 1.96 × SD
-      pop_data$Abundance_lower <- pop_data$Abundance_mean - 1.96 * pop_data$Abundance_sd
-      pop_data$Abundance_upper <- pop_data$Abundance_mean + 1.96 * pop_data$Abundance_sd
-      pop_data$Abundance_lower <- pmax(0, pop_data$Abundance_lower)  # Can't be negative
-      
-      pop_structure_data(pop_data)
+      length_data$Abundance_lower <- length_data$Abundance_mean - 1.96 * length_data$Abundance_sd
+      length_data$Abundance_upper <- length_data$Abundance_mean + 1.96 * length_data$Abundance_sd
+      length_data$Abundance_lower <- pmax(0, length_data$Abundance_lower)  # Can't be negative
+
+      # AGE distribution directly from cohort tracking
+      age_data <- data.frame(
+        Age = 1:Amax,
+        Abundance_mean = rowMeans(all_AgeAbundance, na.rm = TRUE),
+        Abundance_median = apply(all_AgeAbundance, 1, median, na.rm = TRUE),
+        Abundance_sd = apply(all_AgeAbundance, 1, sd, na.rm = TRUE),
+        Abundance_q025 = apply(all_AgeAbundance, 1, quantile, probs = 0.025, na.rm = TRUE),
+        Abundance_q975 = apply(all_AgeAbundance, 1, quantile, probs = 0.975, na.rm = TRUE)
+      )
+      age_data$Abundance_lower <- pmax(0, age_data$Abundance_mean - 1.96 * age_data$Abundance_sd)
+      age_data$Abundance_upper <- age_data$Abundance_mean + 1.96 * age_data$Abundance_sd
+
+      pop_structure_data(list(length_data = length_data, age_data = age_data))
       
       sim_results(results)
     })
@@ -1218,51 +1248,29 @@ server <- function(input, output, session) {
   output$pop_structure <- renderPlotly({
     req(pop_structure_data())
     pop_data <- pop_structure_data()
-    
-    # Convert length bins to ages using inverse von Bertalanffy
-    # age = t0 - (1/K) * ln(1 - L/Linf)
-    growth_params <- get_growth_params()
-    K <- growth_params$vbk
-    Linf <- growth_params$Linf
-    t0 <- growth_params$t0
-    
-    # Calculate age for each length bin and round to nearest integer
-    pop_data$Age <- t0 - (1/K) * log(pmax(0.01, 1 - pop_data$Length / Linf))
-    pop_data$Age <- pmax(0, pop_data$Age)  # Ensure non-negative ages
-    pop_data$Age_int <- round(pop_data$Age)  # Round to nearest integer age
-    
-    # Aggregate abundance by integer age
-    age_data <- pop_data %>%
-      group_by(Age_int) %>%
-      summarize(
-        Abundance_mean = sum(Abundance_mean, na.rm = TRUE),
-        Abundance_lower = sum(Abundance_lower, na.rm = TRUE),
-        Abundance_upper = sum(Abundance_upper, na.rm = TRUE),
-        .groups = "drop"
-      ) %>%
-      rename(Age = Age_int)
-    
+    age_data <- pop_data$age_data
+
     # Determine the max age with meaningful abundance (filter out ages with near-zero abundance)
-    max_age <- max(age_data$Age[age_data$Abundance_mean > 0.1], na.rm = TRUE)
-    
+    max_age <- max(age_data$Age[age_data$Abundance_median > 0.1], na.rm = TRUE)
+
     # Ensure all integer ages from 1 to max are represented (no age-0 fish)
     all_ages <- data.frame(Age = 1:max_age)
     age_data <- all_ages %>%
       left_join(age_data, by = "Age") %>%
       mutate(
-        Abundance_mean = replace_na(Abundance_mean, 0),
-        Abundance_lower = replace_na(Abundance_lower, 0),
-        Abundance_upper = replace_na(Abundance_upper, 0)
+        Abundance_median = replace_na(Abundance_median, 0),
+        Abundance_q025 = replace_na(Abundance_q025, 0),
+        Abundance_q975 = replace_na(Abundance_q975, 0)
       )
     
     p <- ggplot(age_data, aes(x = Age)) +
-      geom_ribbon(aes(ymin = Abundance_lower, ymax = Abundance_upper),
+      geom_ribbon(aes(ymin = Abundance_q025, ymax = Abundance_q975),
                   fill = "steelblue", alpha = 0.3) +
-      geom_col(aes(y = Abundance_mean), fill = "steelblue", alpha = 0.7, width = 0.8) +
-      geom_line(aes(y = Abundance_mean), color = "darkblue", size = 1) +
+      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, width = 0.8) +
+      geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
       scale_x_continuous(breaks = 1:max_age, limits = c(0.5, max_age + 0.5)) +
       labs(title = "Age Distribution at Equilibrium",
-           subtitle = "Bars show mean abundance. Shaded area shows 95% prediction interval (mean ± 1.96 × SD). Ages inferred from length using von Bertalanffy.",
+           subtitle = "Bars show median abundance. Shaded area shows 95% prediction interval across simulations (median ± quantiles).",
            x = "Age (years)", y = "Abundance") +
       theme_minimal()
     
@@ -1273,32 +1281,33 @@ server <- function(input, output, session) {
   output$vulnerability_plot <- renderPlotly({
     req(pop_structure_data())
     pop_data <- pop_structure_data()
+    length_data <- pop_data$length_data
     
     # Create separate data frames for each curve with slight offset for visibility
     capture_data <- data.frame(
-      Length = pop_data$Length,
-      Vulnerability = pop_data$VulCapture,
+      Length = length_data$Length,
+      Vulnerability = length_data$VulCapture,
       Type = "VulCapture"
     )
     
     # Offset harvest curve by 2mm so it doesn't completely overlap capture curve
     harvest_data <- data.frame(
-      Length = pop_data$Length + 2,
-      Vulnerability = pop_data$VulHarvest,
+      Length = length_data$Length + 2,
+      Vulnerability = length_data$VulHarvest,
       Type = "VulHarvest"
     )
     
     # Offset trophy curve by 4mm so all three curves are visible
     trophy_data <- data.frame(
-      Length = pop_data$Length + 4,
-      Vulnerability = pop_data$VulTrophy,
+      Length = length_data$Length + 4,
+      Vulnerability = length_data$VulTrophy,
       Type = "VulTrophy"
     )
     
     vul_long <- rbind(capture_data, harvest_data, trophy_data)
     
     # Get the full range of length data
-    length_range <- range(pop_data$Length, na.rm = TRUE)
+    length_range <- range(length_data$Length, na.rm = TRUE)
     x_max <- ceiling(length_range[2] * 1.05 / 100) * 100  # Round up to nearest 100
     
     # Get memorable size for vertical line
@@ -1326,15 +1335,16 @@ server <- function(input, output, session) {
   output$length_frequency <- renderPlotly({
     req(pop_structure_data())
     pop_data <- pop_structure_data()
+    length_data <- pop_data$length_data
     
     # Get the full range of length data (same as vulnerability plot)
-    length_range <- range(pop_data$Length, na.rm = TRUE)
+    length_range <- range(length_data$Length, na.rm = TRUE)
     x_max <- ceiling(length_range[2] * 1.05 / 100) * 100  # Round up to nearest 100
     
     growth_cv <- input$growth_cv
     
     # Add line and 95% prediction intervals
-    p <- ggplot(pop_data, aes(x = Length)) +
+    p <- ggplot(length_data, aes(x = Length)) +
       geom_ribbon(aes(ymin = Abundance_lower, ymax = Abundance_upper),
                   fill = "steelblue", alpha = 0.3) +
       geom_col(aes(y = Abundance_mean), fill = "steelblue", alpha = 0.7, color = "black", width = 10) +
