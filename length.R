@@ -421,7 +421,8 @@ server <- function(input, output, session) {
   # Keep simulation length tied to maximum age (burn-in + 100 years)
   observe({
     req(input$amax)
-    target_years <- input$amax + 120  # (max age + 20-year burn-in) + 100 evaluation years
+    burn_in_years <- input$amax + 20
+    target_years <- burn_in_years + 100  # burn-in + evaluation window
     if (!isTRUE(all.equal(input$ymax, target_years))) {
       updateNumericInput(session, "ymax", value = target_years)
     }
@@ -604,6 +605,64 @@ server <- function(input, output, session) {
   get_growth_params <- reactive({
     list(Linf = input$linf, vbk = input$vbk, t0 = input$t0)
   })
+
+  make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
+                                 growth_params, bin_width, growth_cv_input,
+                                 growth_cv_effective) {
+    Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
+
+    for(i in 1:L_bins) {
+      current_length <- bin_midpoints[i]
+      K <- growth_params$vbk
+      Linf <- growth_params$Linf
+
+      # von Bertalanffy annual increment
+      growth_increment <- (Linf - current_length) * (1 - exp(-K))
+      growth_increment <- max(0.1, growth_increment)
+
+      expected_length <- current_length + growth_increment
+
+      # === deterministic case when growth_cv == 0 ===
+      if (growth_cv_input == 0) {
+        next_bin <- which.min(abs(bin_midpoints - expected_length))
+
+        Growth_matrix[i, ] <- 0
+        Growth_matrix[i, next_bin] <- 1
+        next  # skip stochastic code
+      }
+
+      # === stochastic case (normal distribution) ===
+      growth_sd <- max(1, growth_increment * growth_cv_effective, bin_width * 0.15)
+
+      # handle fish at/near Linf
+      if(current_length >= Linf * 0.99) {
+        growth_increment <- 0.1
+        growth_sd <- max(1, bin_width * 0.15)
+        expected_length <- current_length + growth_increment
+      }
+
+      probs <- pnorm(bin_uppers, expected_length, growth_sd) -
+        pnorm(bin_lowers, expected_length, growth_sd)
+
+      probs[probs < 0] <- 0
+
+      # normalize row to sum to 1
+      row_sum <- sum(probs)
+      if (row_sum > 0) {
+        Growth_matrix[i, ] <- probs / row_sum
+      } else {
+        Growth_matrix[i, i] <- 1.0
+      }
+    }
+
+    Growth_matrix
+  }
+
+  bh_params <- function(h, Ro, SSB0) {
+    inv <- 1 / max(1, SSB0 * (1 - h))
+    list(alpha = 4 * h * Ro * inv,
+         beta  = (5 * h - 1) * inv)
+  }
   
   # Run simulation when button is clicked
   observeEvent(input$run_sim, {
@@ -744,59 +803,22 @@ server <- function(input, output, session) {
       
       # Total survival WITH fishing (now uses size-dependent S_bins)
       Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
-      
-      
-      
+
+
+
       # ========================================================================
       # GROWTH TRANSITION MATRIX
       # ========================================================================
-      # Create matrix: Growth_matrix[i, j] = prob of moving from bin i to bin j in one year
-
-      Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
-
-      for(i in 1:L_bins) {
-        current_length <- bin_midpoints[i]
-        K <- growth_params$vbk
-        Linf <- growth_params$Linf
-
-        # von Bertalanffy annual increment
-        growth_increment <- (Linf - current_length) * (1 - exp(-K))
-        growth_increment <- max(0.1, growth_increment)
-
-        expected_length <- current_length + growth_increment
-
-        # === deterministic case when growth_cv == 0 ===
-        if (input$growth_cv == 0) {
-          next_bin <- which.min(abs(bin_midpoints - expected_length))
-
-          Growth_matrix[i, ] <- 0
-          Growth_matrix[i, next_bin] <- 1
-          next  # skip stochastic code
-        }
-
-        # === stochastic case (normal distribution) ===
-        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-
-        # handle fish at/near Linf
-        if(current_length >= Linf * 0.99) {
-          growth_increment <- 0.1
-          growth_sd <- max(1, bin_width * 0.15)
-          expected_length <- current_length + growth_increment
-        }
-
-        probs <- pnorm(bin_uppers, expected_length, growth_sd) -
-          pnorm(bin_lowers, expected_length, growth_sd)
-
-        probs[probs < 0] <- 0
-
-        # normalize row to sum to 1
-        row_sum <- sum(probs)
-        if (row_sum > 0) {
-          Growth_matrix[i, ] <- probs / row_sum
-        } else {
-          Growth_matrix[i, i] <- 1.0
-        }
-      }
+      Growth_matrix <- make_growth_matrix(
+        L_bins = L_bins,
+        bin_midpoints = bin_midpoints,
+        bin_lowers = bin_lowers,
+        bin_uppers = bin_uppers,
+        growth_params = growth_params,
+        bin_width = bin_width,
+        growth_cv_input = input$growth_cv,
+        growth_cv_effective = growth_cv
+      )
       
       
       # Convert CV to lognormal sigma (used in each simulation)
@@ -902,11 +924,9 @@ server <- function(input, output, session) {
         # Compute unfished SSB0 for DDR (from unfished equilibrium)
         SSB0 <- SPR_denom   # same value, correct biology
 
-        # Pre-compute Beverton-Holt constants for DDR
+        bh <- NULL
         if (isTRUE(input$enable_ddr)) {
-          inv_denom <- 1 / max(1, SSB0 * (1 - h))
-          alpha <- (4 * h * Ro) * inv_denom
-          beta <- (5 * h - 1) * inv_denom
+          bh <- bh_params(h, Ro, SSB0)
         }
 
         if(isTRUE(input$enable_ddr)) {
@@ -942,7 +962,7 @@ server <- function(input, output, session) {
               if(is.na(SSB_t)) SSB_t <- 0
               if(is.na(SSB0))  SSB0 <- 1
               
-              R_BH <- alpha * SSB_t / (1 + beta * SSB_t)
+              R_BH <- bh$alpha * SSB_t / (1 + bh$beta * SSB_t)
               R_BH <- max(1, R_BH)
               
               if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
@@ -1659,52 +1679,16 @@ server <- function(input, output, session) {
       # Convert CV to lognormal sigma
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
       
-      # Build growth transition matrix (same as main simulation)
-      Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
-
-      for(i in 1:L_bins) {
-        current_length <- bin_midpoints[i]
-        K <- growth_params$vbk
-        Linf <- growth_params$Linf
-
-        # von Bertalanffy annual increment
-        growth_increment <- (Linf - current_length) * (1 - exp(-K))
-        growth_increment <- max(0.1, growth_increment)
-
-        expected_length <- current_length + growth_increment
-
-        # === deterministic case when growth_cv == 0 ===
-        if (input$growth_cv == 0) {
-          next_bin <- which.min(abs(bin_midpoints - expected_length))
-
-          Growth_matrix[i, ] <- 0
-          Growth_matrix[i, next_bin] <- 1
-          next  # skip stochastic code
-        }
-
-        # === stochastic case (normal distribution) ===
-        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-
-        # handle fish at/near Linf
-        if(current_length >= Linf * 0.99) {
-          growth_increment <- 0.1
-          growth_sd <- max(1, bin_width * 0.15)
-          expected_length <- current_length + growth_increment
-        }
-
-        probs <- pnorm(bin_uppers, expected_length, growth_sd) -
-          pnorm(bin_lowers, expected_length, growth_sd)
-
-        probs[probs < 0] <- 0
-
-        # normalize row to sum to 1
-        row_sum <- sum(probs)
-        if (row_sum > 0) {
-          Growth_matrix[i, ] <- probs / row_sum
-        } else {
-          Growth_matrix[i, i] <- 1.0
-        }
-      }
+      Growth_matrix <- make_growth_matrix(
+        L_bins = L_bins,
+        bin_midpoints = bin_midpoints,
+        bin_lowers = bin_lowers,
+        bin_uppers = bin_uppers,
+        growth_params = growth_params,
+        bin_width = bin_width,
+        growth_cv_input = input$growth_cv,
+        growth_cv_effective = growth_cv
+      )
       
       # Calculate mean recruitment length (age-1) and its distribution
       age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
@@ -1806,11 +1790,9 @@ server <- function(input, output, session) {
           # Compute unfished SSB0 for DDR
           SSB0 <- sum(N[unfished_idx, ] * Fec_bins)
 
-          # Pre-compute Beverton-Holt constants for DDR
+          bh <- NULL
           if(isTRUE(input$enable_ddr)) {
-            inv_denom <- 1 / max(1, SSB0 * (1 - h))
-            alpha <- (4 * h * Ro) * inv_denom
-            beta <- (5 * h - 1) * inv_denom
+            bh <- bh_params(h, Ro, SSB0)
           }
 
           if(isTRUE(input$enable_ddr)) {
@@ -1841,7 +1823,7 @@ server <- function(input, output, session) {
               SSB_t <- max(0, SSB_t)
               
               # Beverton-Holt recruitment with steepness parameterization
-              R_BH <- alpha * SSB_t / (1 + beta * SSB_t)
+              R_BH <- bh$alpha * SSB_t / (1 + bh$beta * SSB_t)
               
               # Ensure positive recruitment, minimum 1 recruit
               R_BH <- max(1, R_BH)
