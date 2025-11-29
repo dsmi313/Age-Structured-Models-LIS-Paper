@@ -85,32 +85,16 @@ build_mortality <- function(input, length_bins) {
   )
 }
 
-build_fecundity <- function(input, growth_params) {
-  Amax <- input$amax
-  Age_vec <- 1:Amax
-  
-  Linf <- growth_params$Linf
-  vbk  <- growth_params$vbk
-  t0   <- growth_params$t0
-  
-  # Length-at-age
-  L_at_age <- Linf * (1 - exp(-vbk * (Age_vec - t0)))
-  L_at_age[L_at_age < 0] <- 0
-  
-  # Weight-at-age
-  wl_a <- input$wl_a
-  wl_b <- input$wl_b
-  W_at_age <- wl_a * (L_at_age ^ wl_b)
-  
-  # Simple weight-based fecundity:
-  # scale so a fish at maturity weight has relative fecundity ≈ 1
-  W_mat <- wl_a * (input$mat_size ^ wl_b)
-  fec_scale <- if (is.finite(W_mat) && W_mat > 0) 1 / W_mat else 1
-  
-  Fec_age <- fec_scale * W_at_age
-  Fec_age[!is.finite(Fec_age)] <- 0
-  
-  Fec_age
+build_fecundity <- function(input, Wt_bins, maturity_ogive_bins) {
+  # Default exponent (Barneche et al. 2018)
+  fec_exp <- 1.18
+
+  # Crappie use species-specific exponent
+  if (input$species %in% c("white_crappie", "black_crappie")) {
+    fec_exp <- 1.27
+  }
+
+  (Wt_bins ^ fec_exp) * maturity_ogive_bins
 }
 
 
@@ -221,8 +205,8 @@ build_static_components <- function(input, growth_params = get_growth_params(inp
   Wt_bins <- (alfa * length_bins$bin_midpoints^bet) / 1000
   Wmat <- (alfa * input$mat_size^bet) / 1000
   maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
-  
-  Fec_bins <- build_fecundity(input, growth_params)
+
+  Fec_bins <- build_fecundity(input, Wt_bins, maturity_ogive_bins)
   
   Growth_matrix <- build_growth_matrix(
     input = input,
@@ -305,7 +289,7 @@ simulate_population <- function(U, static, params) {
     N[1, ] <- colSums(Cohort)
     
     SSB_burnin <- rep(NA_real_, burn_in_span)
-    SSB_burnin[1] <- sum(N[1, ] * Wt_bins * maturity_ogive_bins)
+  SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
     
     if (isTRUE(params$enable_ddr)) {
       alpha_beta <- NULL
@@ -338,7 +322,7 @@ simulate_population <- function(U, static, params) {
       
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
-      SSB_burnin[t] <- sum(N[t, ] * Wt_bins * maturity_ogive_bins)
+      SSB_burnin[t] <- sum(N[t, ] * Fec_bins)
     }
     
     burn_in_window_start <- max(1, burn_in_span - 10 + 1)
@@ -358,7 +342,7 @@ simulate_population <- function(U, static, params) {
     
     for(yr in 1:burn_in_span) {
       Yield <- 0
-      SSB_now <- sum(N[yr, ] * Wt_bins * maturity_ogive_bins)
+      SSB_now <- sum(N[yr, ] * Fec_bins)
       SSBt[yr, k] <- SSB_now
       SPRt[yr, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       YPR[yr, k] <- 0
@@ -371,7 +355,7 @@ simulate_population <- function(U, static, params) {
         if (t == start_year) {
           Rcapacity[t] <- Rcapacity[t - 1]
         } else {
-          SSB_prev <- sum(N[t - 1, ] * Wt_bins * maturity_ogive_bins)
+          SSB_prev <- sum(N[t - 1, ] * Fec_bins)
           if (!is.finite(SSB_prev) || SSB_prev < 0) SSB_prev <- 0
           
           if (is.na(SSB0) || !is.finite(SSB0) || SSB0 <= 0) SSB0 <- 1
@@ -403,10 +387,10 @@ simulate_population <- function(U, static, params) {
       N[t, ] <- colSums(Cohort)
       
       Yield_weight <- sum(Wt_bins * Vulharv_bins * N[t, ]) * U
-      SSB_now <- sum(N[t, ] * Wt_bins * maturity_ogive_bins)
+      SSB_now <- sum(N[t, ] * Fec_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
-      YPR[t, k] <- Yield_weight / Ro
+      YPR[t, k] <- if (Rcapacity[t] > 0) Yield_weight / Rcapacity[t] else 0
       SSBt[t, k] <- SSB_now
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- Trophy_prop
@@ -422,14 +406,14 @@ simulate_population <- function(U, static, params) {
       
     }
     
-    results <- data.frame(
-      YPR = YPR[Ymax, k],
-      SPR = SPRt[Ymax, k],
-      Prop = Prop[Ymax, k],
-      Recruit = sum(Cohort)
-    )
-    
     last_50_start <- max(start_year, Ymax - 49)
+
+    results <- data.frame(
+      YPR = mean(YPR[last_50_start:Ymax, k], na.rm = TRUE),
+      SPR = mean(SPRt[last_50_start:Ymax, k], na.rm = TRUE),
+      Prop = mean(Prop[last_50_start:Ymax, k], na.rm = TRUE),
+      Recruit = mean(Rcapacity[last_50_start:Ymax], na.rm = TRUE)
+    )
     results$MeanLengthHarvested <- mean(mean_harvest_length[last_50_start:Ymax, k], na.rm = TRUE)
     
     if (k == 1) {
