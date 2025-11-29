@@ -235,14 +235,12 @@ simulate_population <- function(U, static, params) {
   DisMort <- params$DisMort
   sigmaR <- sqrt(log(params$rec_cv^2 + 1))
   Ro <- params$Ro
-  Harvlim <- params$Harvlim
   store_details <- isTRUE(params$store_details)
   
   Vulcap_bins <- static$Vulcap_bins
   Vulharv_bins <- static$Vulharv_bins
   trophyvul_bins <- static$trophyvul_bins
   Wt_bins <- static$Wt_bins
-  maturity_ogive_bins <- static$maturity_ogive_bins
   Fec_bins <- static$Fec_bins
   S_bins <- static$S_bins
   Unfished_survival_bins <- static$Unfished_survival_bins
@@ -276,7 +274,7 @@ simulate_population <- function(U, static, params) {
     N[1, ] <- colSums(Cohort)
     
     SSB_burnin <- rep(NA_real_, burn_in_span)
-  SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
+    SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
     
     if (isTRUE(params$enable_ddr)) {
       alpha_beta <- NULL
@@ -556,7 +554,6 @@ run_population_simulation <- function(
     enable_depensation = input$enable_depensation,
     steepness         = input$steepness,
     Ro                = 10000,
-    Harvlim           = input$harvlim,
     store_details     = store_details,
     progress          = progress_cb
   )
@@ -585,7 +582,6 @@ run_yield_curve_simulation <- function(
     enable_depensation = input$enable_depensation,
     steepness         = input$steepness,
     Ro                = 10000,
-    Harvlim           = input$harvlim,
     store_details     = FALSE,
     U_values          = U_values,
     progress          = progress_cb
