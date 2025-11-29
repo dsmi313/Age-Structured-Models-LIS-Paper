@@ -991,6 +991,8 @@ server <- function(input, output, session) {
         
         # Calculate mean length of harvested fish (weighted average over last 50 years)
         harvest_window <- N[last_50_start:Ymax, , drop = FALSE] * (Vulharv_bins * U)
+        harvest_window[, bin_midpoints < Harvlim] <- 0  # Guard against any sub-MLL contribution
+
         total_harvest <- rowSums(harvest_window)
         weighted_lengths <- as.vector(harvest_window %*% bin_midpoints)
         harvest_lengths <- ifelse(total_harvest > 0, weighted_lengths / total_harvest, NA_real_)
