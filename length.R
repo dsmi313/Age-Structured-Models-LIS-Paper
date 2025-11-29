@@ -700,6 +700,9 @@ server <- function(input, output, session) {
       } else {
         Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
       }
+
+      # Enforce zero harvest vulnerability below the minimum length limit for display and yield metrics
+      Vulharv_bins[bin_midpoints < Harvlim] <- 0
       
       # Trophy vulnerability by length
       trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
@@ -1640,7 +1643,10 @@ server <- function(input, output, session) {
       } else {
         Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
       }
-      
+
+      # Enforce zero harvest vulnerability below the minimum length limit for display and yield metrics
+      Vulharv_bins[bin_midpoints < Harvlim] <- 0
+
       # Trophy vulnerability by length
       trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
       
