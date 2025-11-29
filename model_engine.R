@@ -54,9 +54,7 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
   } else {
     Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
   }
-  
-  Vulharv_bins[bin_midpoints < Harvlim] <- 0
-  
+
   trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
   
   list(
@@ -68,15 +66,8 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
 
 build_mortality <- function(input, length_bins) {
   M_adult <- input$nat_mort
-  mat_size_val <- input$mat_size
-  
   M_bins <- rep(M_adult, length_bins$L_bins)
-  
-  juvenile_threshold <- mat_size_val * 0.5
-  M_bins[length_bins$bin_midpoints < juvenile_threshold] <- M_adult * 2.0
-  M_bins[length_bins$bin_midpoints >= juvenile_threshold & length_bins$bin_midpoints < mat_size_val] <- M_adult * 1.5
-  
-  S_bins <- exp(-M_bins)
+  S_bins <- rep(exp(-M_adult), length_bins$L_bins)
   
   list(
     M_bins = M_bins,
@@ -302,22 +293,8 @@ simulate_population <- function(U, static, params) {
         survivors <- Cohort[a - 1, ] * Unfished_survival_bins
         newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
       }
-      
-      R <- Ro
-      if (isTRUE(params$enable_ddr)) {
-        if (is.null(alpha_beta)) {
-          alpha_beta <- bh_params(h = params$steepness, Ro = Ro, SSB0 = SSB_burnin[1])
-        }
-        R <- alpha_beta$alpha * SSB_burnin[t - 1] / (1 + alpha_beta$beta * SSB_burnin[t - 1])
-      }
-      if (isTRUE(params$enable_depensation) && isTRUE(params$enable_ddr)) {
-        depensation_threshold <- 0.2 * SSB_burnin[1]
-        if (SSB_burnin[t - 1] < depensation_threshold) {
-          R <- R * (SSB_burnin[t - 1] / depensation_threshold)^2
-        }
-      }
-      
-      R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
+
+      R <- Ro * rlnorm(1, 0, sd = sigmaR)
       newCohort[1, ] <- R * recruit_dist
       
       Cohort <- newCohort
@@ -332,10 +309,9 @@ simulate_population <- function(U, static, params) {
     if (isTRUE(params$enable_ddr)) {
       alpha_beta <- bh_params(h = params$steepness, Ro = Ro, SSB0 = SSB0)
     }
-    
+
     if (isTRUE(params$enable_ddr)) {
       Rcapacity <- rep(NA_real_, Ymax)
-      Rcapacity[1:burn_in_span] <- Ro
     } else {
       Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
     }
