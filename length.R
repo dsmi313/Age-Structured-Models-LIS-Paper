@@ -622,7 +622,7 @@ server <- function(input, output, session) {
       sim_results(sim_out$results)
     })
   })
-  
+
   # Summary statistics output
   output$summary_stats <- renderPrint({
     req(sim_results())
@@ -1119,7 +1119,7 @@ server <- function(input, output, session) {
       yield_curve_data(curve_results)
     })
   })
-  
+
   # MSY plot (Total Yield and Recruitment)
   output$msy_plot <- renderPlotly({
     curve_data <- yield_curve_data()
