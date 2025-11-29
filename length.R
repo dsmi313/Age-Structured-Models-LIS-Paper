@@ -745,7 +745,9 @@ server <- function(input, output, session) {
     ts_data <- time_series_data()
     
     burn_in <- attr(ts_data, "burn_in_years", exact = TRUE)
-    if (is.null(burn_in)) burn_in <- 20
+    if (is.null(burn_in)) {
+      burn_in <- min(input$ymax, max(20, input$amax + 20))
+    }
 
     # Create separate plots for each metric with ribbons
     # Add shaded region for unfished burn-in period (species-specific)
@@ -802,7 +804,7 @@ server <- function(input, output, session) {
       geom_hline(yintercept = depensation_threshold, linetype = "dashed", color = "red", alpha = 0.7) +
       labs(title = "Spawning Stock Biomass (SSB) Over Time",
            subtitle = "Dashed red line: 20% SSB₀ (depensation threshold) | Gray: unfished burn-in",
-           x = "Year", y = "SSB (kg)") +
+           x = "Year", y = "SSB") +
       theme_minimal()
     
     # Combine plots vertically
