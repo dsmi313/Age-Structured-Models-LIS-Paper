@@ -1,6 +1,7 @@
+source("model_engine.R")
+
 library(shiny)
 library(dplyr)
-library(tidyr)
 library(ggplot2)
 library(plotly)
 
@@ -167,7 +168,7 @@ ui <- fluidPage(
         tabPanel("Population Structure",
                  br(),
                  h4("Age Distribution at Equilibrium"),
-                 helpText("Shows the number of fish in each age class at equilibrium. Ages are inferred from length using the von Bertalanffy growth equation.",
+                 helpText("Ages are tracked directly using cohort dynamics (age × length matrix). No inference required.",
                           tags$br(),
                           tags$strong("Bars show mean abundance."), "Shaded area shows 95% prediction interval (mean ± 1.96 × SD) across simulations, representing uncertainty from recruitment variability and growth variation."),
                  plotlyOutput("pop_structure", height = "500px"),
@@ -348,6 +349,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.32)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 1.1)  # Very high recruitment variability (literature: CV=112%)
       updateNumericInput(session, "amax", value = 15)  # Walleye can live 15-20 years
+      updateNumericInput(session, "capsize", value = 300)
       showNotification("Loaded Walleye parameters (FishBase median)", type = "message")
       
     } else if (input$species == "lmb") {
@@ -363,6 +365,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.22)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: CV>0.5)
       updateNumericInput(session, "amax", value = 12)  # Largemouth bass maximum age
+      updateNumericInput(session, "capsize", value = 250)
       showNotification("Loaded Largemouth Bass parameters (FishBase median)", type = "message")
       
     } else if (input$species == "smb") {
@@ -378,6 +381,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.17)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.7)  # Moderate-high recruitment variability (literature: CV=52-80%)
       updateNumericInput(session, "amax", value = 12)  # Smallmouth bass maximum age
+      updateNumericInput(session, "capsize", value = 250)
       showNotification("Loaded Smallmouth Bass parameters (FishBase median)", type = "message")
       
     } else if (input$species == "channel_catfish") {
@@ -393,6 +397,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.17)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
       updateNumericInput(session, "amax", value = 24)  # Channel catfish can live 20-24 years
+      updateNumericInput(session, "capsize", value = 300)
       showNotification("Loaded Channel Catfish parameters (FishBase median)", type = "message")
       
     } else if (input$species == "blue_catfish") {
@@ -408,9 +413,20 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: σR=0.49, Hilling et al. 2025)
       updateNumericInput(session, "amax", value = 30)  # Blue catfish can live 25-30 years
+      updateNumericInput(session, "capsize", value = 350)
       showNotification("Loaded Blue Catfish parameters (FishBase median)", type = "message")
     }
     # If custom, don't update anything
+  })
+
+  # Keep simulation length tied to maximum age (burn-in + 100 years)
+  observe({
+    req(input$amax)
+    burn_in_years <- max(20, input$amax + 20)
+    target_years <- burn_in_years + 100  # burn-in + evaluation window
+    if (!isTRUE(all.equal(input$ymax, target_years))) {
+      updateNumericInput(session, "ymax", value = target_years)
+    }
   })
   
   # Dynamic UI for deleting individual scenarios
@@ -586,425 +602,26 @@ server <- function(input, output, session) {
     # If "custom" is selected, don't update anything - user will enter their own values
   })
   
-  # Get growth parameters from inputs
-  get_growth_params <- reactive({
-    list(Linf = input$linf, vbk = input$vbk, t0 = input$t0)
-  })
-  
   # Run simulation when button is clicked
   observeEvent(input$run_sim, {
-    
-    # Show progress
     withProgress(message = 'Running simulation...', value = 0, {
-      
-      # Get parameters
-      growth_params <- get_growth_params()
-      Amax <- input$amax
-      Ymax <- input$ymax
-      
-      # Weight-length equation (species-specific)
-      alfa <- input$wl_a
-      bet <- input$wl_b
-      
-      # Mortality
-      DisMort <- input$dismort
-      Nat_mort <- input$nat_mort
-      
-      # Stock-recruit
-      Ro <- 10000
-      
-      # Vulnerabilities
-      Capsize <- input$capsize
-      CapsizeSD <- Capsize * 0.01
-      Uppercap <- 380
-      UppercapSD <- Uppercap * 0.01
-      Harvlim <- input$harvlim
-      HarvlimSD <- Harvlim * 0.01
-      
-      # ========================================================================
-      # LENGTH-STRUCTURED MODEL WITH GROWTH VARIABILITY
-      # ========================================================================
-      
-      # Define length bins (10mm bins)
-      bin_width <- 10
-      max_length <- ceiling(growth_params$Linf * 1.2)  # 120% of Linf to be safe
-      length_bins <- seq(0, max_length, by = bin_width)
-      L_bins <- length(length_bins) - 1  # Number of bins
-      bin_midpoints <- (length_bins[-1] + length_bins[-(L_bins+1)]) / 2
-      
-      # Get growth CV
-      growth_cv <- input$growth_cv
-      if(growth_cv == 0) growth_cv <- 0.001  # Avoid division by zero
-      
-      # Pre-compute length-specific variables for each bin
-      # Weight at length
-      Wt_bins <- (alfa * bin_midpoints^bet) / 1000
-      
-      # Fecundity with logistic maturity ogive
-      Wmat <- (alfa * input$mat_size^bet) / 1000
-      maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
-      # ================================
-      # SPECIES-SPECIFIC FECUNDITY
-      # ================================
-      # Default exponent for ALL species = 1.18 (Barneche et al. 2018)
-      fec_exp <- 1.18
-      
-      # Crappie (white or black) use species-specific exponent = 1.27
-      if (input$species %in% c("white_crappie", "black_crappie")) {
-        fec_exp <- 1.27
-      }
-      
-      # Apply exponent to weight
-      Fec_bins <- (Wt_bins ^ fec_exp) * maturity_ogive_bins      
-      # Capture vulnerability by length
-      Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
-      
-      # Harvest vulnerability by length (depends on regulation type)
-      if(input$enable_slot) {
-        Slot_upper <- input$slot_upper
-        Slot_upperSD <- 0.01
-        HarvlimSD_slot <- 0.01
-        Effective_min <- max(Harvlim, Capsize)
-        
-        Vulharv_above_min <- 1 / (1 + exp(-(bin_midpoints - Effective_min) / HarvlimSD_slot))
-        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Slot_upper) / Slot_upperSD))
-        
-        if(input$slot_type == "traditional") {
-          Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
-        } else {
-          Vulharv_bins <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap_bins
-        }
-      } else if(input$enable_max_limit) {
-        Max_harvest_size <- input$max_harvest_size
-        Max_harvestSD <- 0.01
-        Vulharv_above_capture <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
-        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Max_harvest_size) / Max_harvestSD))
-        Vulharv_bins <- Vulharv_above_capture * Vulharv_below_max
-      } else {
-        Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
-      }
-      
-      # Trophy vulnerability by length
-      trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
-      
-      # Get exploitation rate
-      U <- input$exploitation
-      
-      # Natural mortality (annual survival rate)
-      S_annual <- exp(-Nat_mort)
-      
-      # UNFISHED survival by length bin (natural mortality only, NO fishing)
-      # This is used for building unfished equilibrium and SPR denominator
-      Unfished_survival_bins <- rep(S_annual, L_bins)
-      
-      # FISHED survival by length bin (includes fishing mortality)
-      # Fishing mortality by length bin
-      F_bins <- Vulharv_bins * U
-      # Release mortality from discarded fish
-      Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
-      # Total annual survival by length bin WITH FISHING
-      Survival_bins <- S_annual * (1 - F_bins) * (1 - Release_mort_bins)
-      
-      # ========================================================================
-      # GROWTH TRANSITION MATRIX
-      # ========================================================================
-      # Create matrix: Growth_matrix[i, j] = prob of moving from bin i to bin j in one year
-      
-      Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
-      
-      for(i in 1:L_bins) {
-        current_length <- bin_midpoints[i]
-        
-        K <- growth_params$vbk
-        Linf <- growth_params$Linf
-        
-        # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
-        # Proper VB increment: ΔL = (L∞ - L_t) * (1 - exp(-K))
-        # This gives: L_{t+1} = L∞ * (1 - exp(-K)) + L_t * exp(-K)
-        growth_increment <- (Linf - current_length) * (1 - exp(-K))
-        
-        # Ensure positive growth, even for fish at/above Linf
-        growth_increment <- max(0.1, growth_increment)
-        
-        # Add variability: SD = growth_increment * CV
-        # Set minimum SD to avoid pnorm() issues and ensure proper scaling with bin width
-        # Ensures variability scales appropriately for both small (crappie) and large (catfish) species
-        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-        
-        # For fish at or above Linf, minimal growth with small SD
-        if(current_length >= Linf * 0.99) {
-          growth_increment <- 0.1
-          growth_sd <- max(1, bin_width * 0.15)
-        }
-        
-        # Distribute probability across bins
-        for(j in 1:L_bins) {
-          bin_lower <- length_bins[j]
-          bin_upper <- length_bins[j+1]
-          
-          # Expected length next year
-          expected_length <- current_length + growth_increment
-          
-          # Probability of being in bin j next year
-          prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
-          
-          Growth_matrix[i, j] <- prob
-        }
-        
-        # Normalize row to sum to 1 (handle edge effects)
-        row_sum <- sum(Growth_matrix[i, ])
-        if(row_sum > 0) {
-          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
-        } else {
-          # If no growth possible (at max bin), stay in current bin
-          Growth_matrix[i, i] <- 1.0
-        }
-      }
-      
-      # Convert CV to lognormal sigma (used in each simulation)
-      sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-      
-      # Run simulations
-      nsim <- input$nsim
-      results <- data.frame(
-        sim = 1:nsim,
-        YPR = rep(NA, nsim),
-        SPR = rep(NA, nsim),
-        Prop = rep(NA, nsim),
-        MeanLengthHarvested = rep(NA, nsim)  # Mean length of harvested fish
-      )
-      
-      # Store ALL time series data from all simulations
-      all_YPR <- matrix(NA, Ymax, nsim)
-      all_SPR <- matrix(NA, Ymax, nsim)
-      all_Prop <- matrix(NA, Ymax, nsim)
-      all_SSB <- matrix(NA, Ymax, nsim)  # Store SSB time series
-      all_Abundance <- matrix(NA, L_bins, nsim)  # Store population structure from all sims
-      
-      # Calculate mean recruitment length (age-1) and its distribution
-      age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
-      
-      # Create recruitment length distribution (which bins do age-1 fish go into?)
-      recruit_dist <- rep(0, L_bins)
-      for(j in 1:L_bins) {
-        bin_lower <- length_bins[j]
-        bin_upper <- length_bins[j+1]
-        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
-        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
-      }
-      # Normalize and handle edge case of all zeros
-      if(sum(recruit_dist) > 0) {
-        recruit_dist <- recruit_dist / sum(recruit_dist)
-      } else {
-        # Fallback: put all recruitment in the bin closest to age1_mean_length
-        closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
-        recruit_dist[closest_bin] <- 1.0
-      }
-      
-      burnin_years <- min(Ymax, input$amax + 20)
+      static <- build_static_components_from_input(input)
 
-      for(k in 1:nsim) {
-        
-        incProgress(1/nsim, detail = paste("Simulation", k, "of", nsim))
-        
-        # Initialize matrices for this simulation (LENGTH-STRUCTURED)
-        N <- matrix(0, Ymax, L_bins)  # Abundance by year and length bin
-        Yield <- rep(NA, Ymax)
-        SPRt <- rep(NA, Ymax)
-        YPR <- rep(NA, Ymax)
-        Prop <- rep(NA, Ymax)
-        SSBt <- rep(NA, Ymax)  # Spawning stock biomass time series
-        
-        # Set initial population structure (UNFISHED equilibrium in length bins)
-        # Start with recruitment distributed across length bins
-        N[1, ] <- Ro * recruit_dist
-
-        # Track SSB during burn-in for SPR baseline
-        SSB_burnin <- rep(NA, burnin_years)
-        SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
-
-        # Build UNFISHED equilibrium over the burn-in window (establish baseline for SPR)
-        for(init_year in 2:burnin_years) {
-          # Apply UNFISHED survival (natural mortality only, NO fishing)
-          N_survive <- N[init_year-1, ] * Unfished_survival_bins
-
-          # Apply growth (move to new length bins)
-          N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
-
-          # Add stochastic recruitment (unfished populations still have recruitment variability)
-          N[init_year, ] <- N[init_year, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
-
-          # Track SSB for this burn-in year
-          SSB_burnin[init_year] <- sum(N[init_year, ] * Fec_bins)
-        }
-
-        burnin_start <- max(1, burnin_years - 9)
-        SPR_denom <- mean(SSB_burnin[burnin_start:burnin_years], na.rm = TRUE)
-
-        # Compute unfished SSB0 for DDR (from unfished equilibrium)
-        SSB0 <- SPR_denom
-        
-        # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
-        if(isTRUE(input$enable_ddr)) {
-          # Will be calculated dynamically inside loop based on SSB
-          Rcapacity <- rep(NA, Ymax)
-        } else {
-          # Traditional per-recruit: constant mean recruitment with noise
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
-        }
-        
-        # Get steepness if DDR is enabled
-        h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
-        
-        # Calculate metrics for unfished burn-in period
-        for(yr in 1:burnin_years) {
-          Yield[yr] <- 0  # No fishing during burn-in
-          SSBt[yr] <- sum(N[yr, ] * Fec_bins)  # Track SSB during burn-in
-          SPRt[yr] <- SSBt[yr] / SPR_denom  # Build toward equilibrium
-          YPR[yr] <- 0
-          Prop[yr] <- sum(trophyvul_bins * N[yr, ]) / max(1, sum(N[yr, ]))
-        }
-
-        # Main simulation loop with FISHING (starts after burn-in)
-        start_year <- min(burnin_years + 1, Ymax)
-        for(i in start_year:Ymax) {
-          # If DDR enabled, calculate recruitment from previous year's SSB
-          if(isTRUE(input$enable_ddr)) {
-            # Calculate spawning stock biomass from PREVIOUS year
-            SSB_t <- sum(N[i-1, ] * Fec_bins)
-            
-            # Prevent negative SSB
-            SSB_t <- max(0, SSB_t)
-            
-            # Beverton-Holt recruitment with steepness parameterization
-            # R = (4*h*R0*SSB) / (SSB0*(1-h) + (5*h-1)*SSB)
-            R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
-            
-            # Ensure positive recruitment, minimum 1 recruit
-            R_BH <- max(1, R_BH)
-            
-            # Apply depensation (Allee effects) if enabled
-            if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
-              depensation_factor <- (SSB_t / (0.2 * SSB0))^2  # Quadratic penalty
-              R_BH <- R_BH * depensation_factor
-            }
-            
-            # Add stochastic noise
-            Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
-          }
-          
-          # Apply survival to previous year's population
-          N_survive <- N[i-1, ] * Survival_bins
-          
-          # Apply growth (transition to new length bins)
-          N[i, ] <- as.vector(N_survive %*% Growth_matrix)
-          
-          # Add stochastic recruitment distributed across length bins
-          N[i, ] <- N[i, ] + Rcapacity[i] * recruit_dist
-          
-          # Calculate annual metrics
-          total_recruits <- Rcapacity[i]  # Now correctly using actual recruitment
-          
-          Yield[i] <- sum(Wt_bins * Vulharv_bins * N[i, ]) * U
-          SSBt[i] <- sum(N[i, ] * Fec_bins)  # Spawning stock biomass
-          SPRt[i] <- SSBt[i] / SPR_denom
-          # YPR = Yield / Recruitment. With DDR, this has a less clean interpretation than
-          # traditional per-recruit models because: (1) recruitment depends on SSB, and
-          # (2) yield depends on length structure. Still valid, but represents equilibrium
-          # yield per recruit at the current SSB level, not a constant biological parameter.
-          YPR[i] <- Yield[i] / max(1, Rcapacity[i])  # Prevent division by zero
-          Prop[i] <- sum(trophyvul_bins * N[i, ]) / max(1, sum(N[i, ]))  # Prevent division by zero
-        }
-        
-        # Store results (last 50 years of fished equilibrium)
-        last_50_start <- max(start_year, Ymax - 49)  # Ensure we don't include unfished burn-in
-        SPRout <- SPRt[last_50_start:Ymax]
-        results$SPR[k] <- mean(SPRout, na.rm = TRUE)
-        
-        YPRout <- YPR[last_50_start:Ymax]
-        results$YPR[k] <- mean(YPRout, na.rm = TRUE)
-        
-        Propout <- Prop[last_50_start:Ymax]
-        results$Prop[k] <- mean(Propout, na.rm = TRUE)
-        
-        # Calculate mean length of harvested fish (weighted average over last 50 years)
-        harvest_lengths <- numeric(length(last_50_start:Ymax))
-        for(yr_idx in seq_along(last_50_start:Ymax)) {
-          yr <- last_50_start + yr_idx - 1
-          harvest_by_bin <- N[yr, ] * Vulharv_bins * U
-          total_harvest <- sum(harvest_by_bin)
-          if(total_harvest > 0) {
-            harvest_lengths[yr_idx] <- sum(harvest_by_bin * bin_midpoints) / total_harvest
-          } else {
-            harvest_lengths[yr_idx] <- NA
-          }
-        }
-        results$MeanLengthHarvested[k] <- mean(harvest_lengths, na.rm = TRUE)
-        
-        # Store time series from this simulation
-        all_YPR[, k] <- YPR
-        all_SPR[, k] <- SPRt
-        all_Prop[, k] <- Prop
-        all_SSB[, k] <- SSBt
-        
-        # Store final year abundance from this simulation
-        all_Abundance[, k] <- N[Ymax, ]
-      }
-      
-      # Calculate mean and SD across all simulations at each year
-      ts_data <- data.frame(
-        Year = 1:Ymax,
-        YPR_mean = rowMeans(all_YPR, na.rm = TRUE),
-        YPR_sd = apply(all_YPR, 1, sd, na.rm = TRUE),
-        SPR_mean = rowMeans(all_SPR, na.rm = TRUE),
-        SPR_sd = apply(all_SPR, 1, sd, na.rm = TRUE),
-        Prop_mean = rowMeans(all_Prop, na.rm = TRUE),
-        Prop_sd = apply(all_Prop, 1, sd, na.rm = TRUE),
-        SSB_mean = rowMeans(all_SSB, na.rm = TRUE),
-        SSB_sd = apply(all_SSB, 1, sd, na.rm = TRUE)
+      sim_out <- run_population_simulation(
+        U = input$exploitation,
+        input = input,
+        static = static,
+        nsim = input$nsim,
+        store_details = TRUE,
+        progress_cb = function(value, detail = NULL) incProgress(value, detail = detail)
       )
 
-      ts_data$burnin_years <- burnin_years
-      
-      # Calculate 95% prediction intervals: mean ± 1.96 × SD
-      # Constrain to biologically valid ranges
-      ts_data$YPR_lower <- pmax(0, ts_data$YPR_mean - 1.96 * ts_data$YPR_sd)
-      ts_data$YPR_upper <- ts_data$YPR_mean + 1.96 * ts_data$YPR_sd
-      ts_data$SPR_lower <- pmax(0, ts_data$SPR_mean - 1.96 * ts_data$SPR_sd)
-      ts_data$SPR_upper <- ts_data$SPR_mean + 1.96 * ts_data$SPR_sd  # Allow > 1 during burn-in
-      ts_data$Prop_lower <- pmax(0, ts_data$Prop_mean - 1.96 * ts_data$Prop_sd)
-      ts_data$Prop_upper <- pmin(1, ts_data$Prop_mean + 1.96 * ts_data$Prop_sd)
-      ts_data$SSB_lower <- pmax(0, ts_data$SSB_mean - 1.96 * ts_data$SSB_sd)
-      ts_data$SSB_upper <- ts_data$SSB_mean + 1.96 * ts_data$SSB_sd
-      
-      time_series_data(ts_data)
-      
-      # Calculate mean, median, and 95% prediction intervals for population structure
-      # Now using LENGTH BINS instead of age classes
-      pop_data <- data.frame(
-        Length = bin_midpoints,
-        Weight = Wt_bins,
-        Abundance_mean = rowMeans(all_Abundance, na.rm = TRUE),
-        Abundance_median = apply(all_Abundance, 1, median, na.rm = TRUE),
-        Abundance_sd = apply(all_Abundance, 1, sd, na.rm = TRUE),
-        Abundance_q25 = apply(all_Abundance, 1, quantile, probs = 0.25, na.rm = TRUE),
-        Abundance_q75 = apply(all_Abundance, 1, quantile, probs = 0.75, na.rm = TRUE),
-        VulCapture = Vulcap_bins,
-        VulHarvest = Vulharv_bins,
-        VulTrophy = trophyvul_bins  # Trophy/memorable vulnerability
-      )
-      # Calculate 95% prediction intervals: mean ± 1.96 × SD
-      pop_data$Abundance_lower <- pop_data$Abundance_mean - 1.96 * pop_data$Abundance_sd
-      pop_data$Abundance_upper <- pop_data$Abundance_mean + 1.96 * pop_data$Abundance_sd
-      pop_data$Abundance_lower <- pmax(0, pop_data$Abundance_lower)  # Can't be negative
-      
-      pop_structure_data(pop_data)
-      
-      sim_results(results)
+      time_series_data(sim_out$time_series)
+      pop_structure_data(sim_out$pop_structure)
+      sim_results(sim_out$results)
     })
   })
-  
+
   # Summary statistics output
   output$summary_stats <- renderPrint({
     req(sim_results())
@@ -1125,30 +742,33 @@ server <- function(input, output, session) {
   output$timeseries_plot <- renderPlotly({
     req(time_series_data())
     ts_data <- time_series_data()
-
-    burnin_years_plot <- if("burnin_years" %in% names(ts_data)) ts_data$burnin_years[1] else 20
     
+    burn_in <- attr(ts_data, "burn_in_years", exact = TRUE)
+    if (is.null(burn_in)) {
+      burn_in <- min(input$ymax, max(20, input$amax + 20))
+    }
+
     # Create separate plots for each metric with ribbons
-    # Add shaded region for unfished burn-in period
+    # Add shaded region for unfished burn-in period (species-specific)
     p1 <- ggplot(ts_data, aes(x = Year, y = YPR_mean)) +
-      annotate("rect", xmin = 1, xmax = burnin_years_plot, ymin = -Inf, ymax = Inf,
+      annotate("rect", xmin = 1, xmax = burn_in, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = YPR_lower, ymax = YPR_upper),
                   alpha = 0.2, fill = "steelblue") +
       geom_line(color = "steelblue", size = 1) +
-      geom_vline(xintercept = burnin_years_plot, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_vline(xintercept = burn_in, linetype = "dotted", color = "gray40", alpha = 0.7) +
       labs(title = "YPR Over Time (Mean ± 95% Prediction Interval)",
-           subtitle = "Gray shaded area: unfished burn-in period",
+           subtitle = paste0("Gray shaded area: unfished burn-in period (years 1-", burn_in, ")"),
            x = "", y = "YPR (kg)") +
       theme_minimal()
-
+    
     p2 <- ggplot(ts_data, aes(x = Year, y = SPR_mean)) +
-      annotate("rect", xmin = 1, xmax = burnin_years_plot, ymin = -Inf, ymax = Inf,
+      annotate("rect", xmin = 1, xmax = burn_in, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = SPR_lower, ymax = SPR_upper),
                   alpha = 0.2, fill = "darkgreen") +
       geom_line(color = "darkgreen", size = 1) +
-      geom_vline(xintercept = burnin_years_plot, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_vline(xintercept = burn_in, linetype = "dotted", color = "gray40", alpha = 0.7) +
       geom_hline(yintercept = 0.40, linetype = "dashed", color = "orange", alpha = 0.7) +
       geom_hline(yintercept = 0.30, linetype = "dashed", color = "red", alpha = 0.7) +
       labs(title = "SPR Over Time (Mean ± 95% Prediction Interval)",
@@ -1158,29 +778,28 @@ server <- function(input, output, session) {
     
     memorable_inches <- round(input$memorable_size / 25.4, 1)
     p3 <- ggplot(ts_data, aes(x = Year, y = Prop_mean)) +
-      annotate("rect", xmin = 1, xmax = burnin_years_plot, ymin = -Inf, ymax = Inf,
+      annotate("rect", xmin = 1, xmax = burn_in, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = Prop_lower, ymax = Prop_upper),
                   alpha = 0.2, fill = "darkorange") +
       geom_line(color = "darkorange", size = 1) +
-      geom_vline(xintercept = burnin_years_plot, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_vline(xintercept = burn_in, linetype = "dotted", color = "gray40", alpha = 0.7) +
       labs(title = paste0("Proportion Memorable (≥", memorable_inches, "\") Over Time"),
            subtitle = "Mean ± 95% prediction interval | Gray: unfished burn-in",
            x = "", y = "Proportion") +
       theme_minimal()
-
+    
     # Calculate 20% SSB threshold (depensation threshold) from unfished SSB
-    burnin_index <- min(burnin_years_plot, nrow(ts_data))
-    SSB0_approx <- ts_data$SSB_mean[burnin_index]  # Unfished equilibrium at end of burn-in
+    SSB0_approx <- ts_data$SSB_mean[min(burn_in, nrow(ts_data))]  # Unfished equilibrium at end of burn-in
     depensation_threshold <- SSB0_approx * 0.2
-
+    
     p4 <- ggplot(ts_data, aes(x = Year, y = SSB_mean)) +
-      annotate("rect", xmin = 1, xmax = burnin_years_plot, ymin = -Inf, ymax = Inf,
+      annotate("rect", xmin = 1, xmax = burn_in, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = SSB_lower, ymax = SSB_upper),
                   alpha = 0.2, fill = "purple") +
       geom_line(color = "purple", size = 1) +
-      geom_vline(xintercept = burnin_years_plot, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_vline(xintercept = burn_in, linetype = "dotted", color = "gray40", alpha = 0.7) +
       geom_hline(yintercept = depensation_threshold, linetype = "dashed", color = "red", alpha = 0.7) +
       labs(title = "Spawning Stock Biomass (SSB) Over Time",
            subtitle = "Dashed red line: 20% SSB₀ (depensation threshold) | Gray: unfished burn-in",
@@ -1205,55 +824,19 @@ server <- function(input, output, session) {
       ))
   })
   
-  # Population structure plot (by AGE)
+  # Population structure plot - TRUE AGE from cohorts
   output$pop_structure <- renderPlotly({
     req(pop_structure_data())
-    pop_data <- pop_structure_data()
-    
-    # Convert length bins to ages using inverse von Bertalanffy
-    # age = t0 - (1/K) * ln(1 - L/Linf)
-    growth_params <- get_growth_params()
-    K <- growth_params$vbk
-    Linf <- growth_params$Linf
-    t0 <- growth_params$t0
-    
-    # Calculate age for each length bin and round to nearest integer
-    pop_data$Age <- t0 - (1/K) * log(pmax(0.01, 1 - pop_data$Length / Linf))
-    pop_data$Age <- pmax(0, pop_data$Age)  # Ensure non-negative ages
-    pop_data$Age_int <- round(pop_data$Age)  # Round to nearest integer age
-    
-    # Aggregate abundance by integer age
-    age_data <- pop_data %>%
-      group_by(Age_int) %>%
-      summarize(
-        Abundance_mean = sum(Abundance_mean, na.rm = TRUE),
-        Abundance_lower = sum(Abundance_lower, na.rm = TRUE),
-        Abundance_upper = sum(Abundance_upper, na.rm = TRUE),
-        .groups = "drop"
-      ) %>%
-      rename(Age = Age_int)
-    
-    # Determine the max age with meaningful abundance (filter out ages with near-zero abundance)
-    max_age <- max(age_data$Age[age_data$Abundance_mean > 0.1], na.rm = TRUE)
-    
-    # Ensure all integer ages from 1 to max are represented (no age-0 fish)
-    all_ages <- data.frame(Age = 1:max_age)
-    age_data <- all_ages %>%
-      left_join(age_data, by = "Age") %>%
-      mutate(
-        Abundance_mean = replace_na(Abundance_mean, 0),
-        Abundance_lower = replace_na(Abundance_lower, 0),
-        Abundance_upper = replace_na(Abundance_upper, 0)
-      )
+    pop_list <- pop_structure_data()
+    age_data <- pop_list$age_data
     
     p <- ggplot(age_data, aes(x = Age)) +
       geom_ribbon(aes(ymin = Abundance_lower, ymax = Abundance_upper),
                   fill = "steelblue", alpha = 0.3) +
-      geom_col(aes(y = Abundance_mean), fill = "steelblue", alpha = 0.7, width = 0.8) +
-      geom_line(aes(y = Abundance_mean), color = "darkblue", size = 1) +
-      scale_x_continuous(breaks = 1:max_age, limits = c(0.5, max_age + 0.5)) +
-      labs(title = "Age Distribution at Equilibrium",
-           subtitle = "Bars show mean abundance. Shaded area shows 95% prediction interval (mean ± 1.96 × SD). Ages inferred from length using von Bertalanffy.",
+      geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, width = 0.8) +
+      geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
+      labs(title = "True Age Distribution at Equilibrium",
+           subtitle = "Bars show mean; ribbon shows 95% PI. Ages tracked directly via cohort matrix.",
            x = "Age (years)", y = "Abundance") +
       theme_minimal()
     
@@ -1263,7 +846,8 @@ server <- function(input, output, session) {
   # Vulnerability plot
   output$vulnerability_plot <- renderPlotly({
     req(pop_structure_data())
-    pop_data <- pop_structure_data()
+    pop_list <- pop_structure_data()
+    pop_data <- pop_list$length_data   # <- this is the data frame you want
     
     # Create separate data frames for each curve with slight offset for visibility
     capture_data <- data.frame(
@@ -1271,7 +855,6 @@ server <- function(input, output, session) {
       Vulnerability = pop_data$VulCapture,
       Type = "VulCapture"
     )
-    
     # Offset harvest curve by 2mm so it doesn't completely overlap capture curve
     harvest_data <- data.frame(
       Length = pop_data$Length + 2,
@@ -1316,7 +899,8 @@ server <- function(input, output, session) {
   # Length-frequency histogram (now directly from length bins!)
   output$length_frequency <- renderPlotly({
     req(pop_structure_data())
-    pop_data <- pop_structure_data()
+    pop_list <- pop_structure_data()
+    pop_data <- pop_list$length_data   # <- use the length data
     
     # Get the full range of length data (same as vulnerability plot)
     length_range <- range(pop_data$Length, na.rm = TRUE)
@@ -1521,333 +1105,20 @@ server <- function(input, output, session) {
   # Yield Curve Generation
   observeEvent(input$run_yield_curve, {
     withProgress(message = 'Generating yield curve...', value = 0, {
-      
-      growth_params <- get_growth_params()
-      Amax <- input$amax
-      Ymax <- input$ymax
-      
-      # Weight-length equation (species-specific)
-      alfa <- input$wl_a
-      bet <- input$wl_b
-      
-      # Mortality
-      DisMort <- input$dismort
-      Nat_mort <- input$nat_mort
-      
-      # Stock-recruit
-      Ro <- 10000
-      
-      # Vulnerabilities (use current settings)
-      Capsize <- input$capsize
-      CapsizeSD <- Capsize * 0.01
-      Uppercap <- 380
-      UppercapSD <- Uppercap * 0.01
-      Harvlim <- input$harvlim
-      HarvlimSD <- Harvlim * 0.01
-      
-      # ========================================================================
-      # LENGTH-STRUCTURED YIELD CURVES (with growth variability and optional DDR)
-      # ========================================================================
-      
-      # Define length bins (10mm bins) - same as main simulation
-      bin_width <- 10
-      max_length <- ceiling(growth_params$Linf * 1.2)
-      length_bins <- seq(0, max_length, by = bin_width)
-      L_bins <- length(length_bins) - 1
-      bin_midpoints <- (length_bins[-1] + length_bins[-(L_bins+1)]) / 2
-      
-      # Get growth CV
-      growth_cv <- input$growth_cv
-      if(growth_cv == 0) growth_cv <- 0.001
-      
-      # Pre-compute length-specific variables for each bin
-      Wt_bins <- (alfa * bin_midpoints^bet) / 1000
-      Wmat <- (alfa * input$mat_size^bet) / 1000
-      maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
-      # ================================
-      # SPECIES-SPECIFIC FECUNDITY
-      # ================================
-      # Default exponent for ALL species = 1.18 (Barneche et al. 2018)
-      fec_exp <- 1.18
-      
-      # Crappie (white or black) use species-specific exponent = 1.27
-      if (input$species %in% c("white_crappie", "black_crappie")) {
-        fec_exp <- 1.27
-      }
-      
-      # Apply exponent to weight
-      Fec_bins <- (Wt_bins ^ fec_exp) * maturity_ogive_bins      
-      Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
-      
-      # Harvest vulnerability by length (depends on regulation type)
-      if(input$enable_slot) {
-        Slot_upper <- input$slot_upper
-        Slot_upperSD <- 0.01
-        HarvlimSD_slot <- 0.01
-        Effective_min <- max(Harvlim, Capsize)
-        
-        Vulharv_above_min <- 1 / (1 + exp(-(bin_midpoints - Effective_min) / HarvlimSD_slot))
-        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Slot_upper) / Slot_upperSD))
-        
-        if(input$slot_type == "traditional") {
-          Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
-        } else {
-          Vulharv_bins <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap_bins
-        }
-      } else if(input$enable_max_limit) {
-        Max_harvest_size <- input$max_harvest_size
-        Max_harvestSD <- 0.01
-        Vulharv_above_capture <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
-        Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Max_harvest_size) / Max_harvestSD))
-        Vulharv_bins <- Vulharv_above_capture * Vulharv_below_max
-      } else {
-        Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
-      }
-      
-      # Trophy vulnerability by length
-      trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
-      
-      # Natural mortality
-      S_annual <- exp(-Nat_mort)
-      Unfished_survival_bins <- rep(S_annual, L_bins)
-      
-      # Convert CV to lognormal sigma
-      sigmaR <- sqrt(log(input$rec_cv^2 + 1))
-      
-      # Build growth transition matrix (same as main simulation)
-      Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
-      
-      for(i in 1:L_bins) {
-        current_length <- bin_midpoints[i]
-        K <- growth_params$vbk
-        Linf <- growth_params$Linf
-        
-        # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
-        growth_increment <- (Linf - current_length) * (1 - exp(-K))
-        growth_increment <- max(0.1, growth_increment)  # Ensure positive
-        # Set minimum SD to ensure proper scaling with bin width
-        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-        
-        # For fish at or above Linf, minimal growth with small SD
-        if(current_length >= Linf * 0.99) {
-          growth_increment <- 0.1
-          growth_sd <- max(1, bin_width * 0.15)
-        }
-        
-        # Distribute probability across bins
-        for(j in 1:L_bins) {
-          bin_lower <- length_bins[j]
-          bin_upper <- length_bins[j+1]
-          expected_length <- current_length + growth_increment
-          prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
-          Growth_matrix[i, j] <- prob
-        }
-        
-        # Normalize row to sum to 1
-        row_sum <- sum(Growth_matrix[i, ])
-        if(row_sum > 0) {
-          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
-        } else {
-          Growth_matrix[i, i] <- 1.0  # Stay in current bin if no growth
-        }
-      }
-      
-      # Calculate mean recruitment length (age-1) and its distribution
-      age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
-      
-      # Create recruitment length distribution (which bins do age-1 fish go into?)
-      recruit_dist <- rep(0, L_bins)
-      for(j in 1:L_bins) {
-        bin_lower <- length_bins[j]
-        bin_upper <- length_bins[j+1]
-        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
-        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
-      }
-      # Normalize and handle edge case of all zeros
-      if(sum(recruit_dist) > 0) {
-        recruit_dist <- recruit_dist / sum(recruit_dist)
-      } else {
-        # Fallback: put all recruitment in the bin closest to age1_mean_length
-        closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
-        recruit_dist[closest_bin] <- 1.0
-      }
-      
-      # Get number of simulations
-      nsim <- input$yield_curve_nsim
-      
-      # Use 100-year simulation for yield curves with longer burn-in to reduce uncertainty
-      Ymax_yield <- 100
-      burnin_yield <- min(Ymax_yield, input$amax + 20)
-      
-      # Test exploitation rates from 0 to 1
-      U_values <- seq(0, 1, by = 0.1)  # Reduced resolution for speed (11 points instead of 21)
-      n_points <- length(U_values)
-      
-      # Pre-allocate results data frame for speed (avoid rbind in loop)
-      curve_results <- data.frame(
-        U = U_values,
-        YPR_mean = numeric(n_points),
-        YPR_sd = numeric(n_points),
-        YPR_n = integer(n_points),
-        SPR_mean = numeric(n_points),
-        SPR_sd = numeric(n_points),
-        SPR_n = integer(n_points),
-        Prop_mean = numeric(n_points),
-        Prop_sd = numeric(n_points),
-        Prop_n = integer(n_points),
-        Recruit_mean = numeric(n_points),
-        Recruit_sd = numeric(n_points),
-        TotalYield_mean = numeric(n_points),
-        TotalYield_sd = numeric(n_points)
+      static <- build_static_components_from_input(input)
+
+      curve_results <- run_yield_curve_simulation(
+        input = input,
+        static = static,
+        U_values = seq(0, 1, by = 0.1),
+        nsim = input$yield_curve_nsim,
+        progress_cb = function(value, detail = NULL) incProgress(value, detail = detail)
       )
-      
-      for(u_idx in 1:n_points) {
-        incProgress(1/length(U_values), detail = paste("U =", round(U_values[u_idx], 2)))
-        
-        U_test <- U_values[u_idx]
-        
-        # Fishing mortality and survival by length bin (for this U)
-        F_bins <- Vulharv_bins * U_test
-        Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U_test * DisMort
-        Survival_bins <- S_annual * (1 - F_bins) * (1 - Release_mort_bins)
-        
-        # Harvest weight by length bin
-        Wt_harvest_bins <- Wt_bins * Vulharv_bins
-        
-        ypr_vals <- numeric(nsim)
-        spr_vals <- numeric(nsim)
-        prop_vals <- numeric(nsim)
-        recruit_vals <- numeric(nsim)
-        
-        for(k in 1:nsim) {
-          # Initialize length-structured population matrix
-          N <- matrix(0, nrow = Ymax_yield, ncol = L_bins)
-          YPR <- rep(NA, Ymax_yield)
-          SPRt <- rep(NA, Ymax_yield)
-          Prop <- rep(NA, Ymax_yield)
-          
-          # Set initial population structure
-          N[1, ] <- Ro * recruit_dist
-          
-          # Build UNFISHED equilibrium over burn-in window (establish baseline for SPR)
-          SSB_burnin <- rep(NA, burnin_yield)
-          SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
-          for(init_year in 2:burnin_yield) {
-            # Apply UNFISHED survival (natural mortality only, NO fishing)
-            N_survive <- N[init_year-1, ] * Unfished_survival_bins
 
-            # Apply growth (move to new length bins)
-            N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
-
-            # Add stochastic recruitment (unfished populations still have recruitment variability)
-            N[init_year, ] <- N[init_year, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
-
-            SSB_burnin[init_year] <- sum(N[init_year, ] * Fec_bins)
-          }
-
-          burnin_start <- max(1, burnin_yield - 9)
-          SPR_denom <- mean(SSB_burnin[burnin_start:burnin_yield], na.rm = TRUE)
-
-          # Compute unfished SSB0 for DDR
-          SSB0 <- SPR_denom
-          
-          # Generate stochastic recruitment (or calculate from SSB if DDR enabled)
-          if(isTRUE(input$enable_ddr)) {
-            # Will be calculated dynamically inside loop based on SSB
-            Rcapacity <- rep(NA, Ymax_yield)
-          } else {
-            # Traditional per-recruit: constant mean recruitment with noise
-            Rcapacity <- Ro * rlnorm(Ymax_yield, 0, sd = sigmaR)
-          }
-          
-          # Get steepness if DDR is enabled
-          h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
-          
-          # Calculate metrics for unfished burn-in period
-          for(yr in 1:burnin_yield) {
-            YPR[yr] <- 0
-            SPRt[yr] <- sum(N[yr, ] * Fec_bins) / SPR_denom  # Build toward equilibrium
-            Prop[yr] <- sum(trophyvul_bins * N[yr, ]) / max(1, sum(N[yr, ]))
-          }
-
-          # Main simulation loop with FISHING (starts after burn-in)
-          start_year_yield <- min(burnin_yield + 1, Ymax_yield)
-          for(i in start_year_yield:Ymax_yield) {
-            # If DDR enabled, calculate recruitment from previous year's SSB
-            if(isTRUE(input$enable_ddr)) {
-              # Calculate spawning stock biomass from PREVIOUS year
-              SSB_t <- sum(N[i-1, ] * Fec_bins)
-              
-              # Prevent negative SSB
-              SSB_t <- max(0, SSB_t)
-              
-              # Beverton-Holt recruitment with steepness parameterization
-              R_BH <- (4 * h * Ro * SSB_t) / (SSB0 * (1 - h) + (5 * h - 1) * SSB_t)
-              
-              # Ensure positive recruitment, minimum 1 recruit
-              R_BH <- max(1, R_BH)
-              
-              # Apply depensation (Allee effects) if enabled
-              if(isTRUE(input$enable_depensation) && SSB_t < 0.2 * SSB0) {
-                depensation_factor <- (SSB_t / (0.2 * SSB0))^2  # Quadratic penalty
-                R_BH <- R_BH * depensation_factor
-              }
-              
-              # Add stochastic noise
-              Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
-            }
-            
-            # Apply FISHED survival (includes fishing mortality)
-            N_survive <- N[i-1, ] * Survival_bins
-            
-            # Apply growth (move to new length bins)
-            N[i, ] <- as.vector(N_survive %*% Growth_matrix)
-            
-            # Add recruitment
-            N[i, ] <- N[i, ] + Rcapacity[i] * recruit_dist
-            
-            # Calculate metrics
-            harvest_weight <- sum(Wt_harvest_bins * N[i, ])
-            fecundity_now <- sum(Fec_bins * N[i, ])
-            abundance_now <- max(1, sum(N[i, ]))  # Prevent division by zero
-            
-            YPR[i] <- (harvest_weight * U_test) / max(1, Rcapacity[i])  # Prevent division by zero
-            SPRt[i] <- fecundity_now / SPR_denom
-            Prop[i] <- sum(trophyvul_bins * N[i, ]) / abundance_now
-          }
-          
-          # Use last 50 years of fished equilibrium for calculations
-          last_50_start <- max(start_year_yield, Ymax_yield - 49)  # Ensure we don't include unfished burn-in
-          ypr_vals[k] <- mean(YPR[last_50_start:Ymax_yield], na.rm = TRUE)
-          spr_vals[k] <- mean(SPRt[last_50_start:Ymax_yield], na.rm = TRUE)
-          prop_vals[k] <- mean(Prop[last_50_start:Ymax_yield], na.rm = TRUE)
-          recruit_vals[k] <- mean(Rcapacity[last_50_start:Ymax_yield], na.rm = TRUE)
-        }
-        
-        # Store results in pre-allocated data frame (much faster than rbind)
-        curve_results$YPR_mean[u_idx] <- mean(ypr_vals, na.rm = TRUE)
-        curve_results$YPR_sd[u_idx] <- sd(ypr_vals, na.rm = TRUE)
-        curve_results$YPR_n[u_idx] <- nsim
-        curve_results$SPR_mean[u_idx] <- mean(spr_vals, na.rm = TRUE)
-        curve_results$SPR_sd[u_idx] <- sd(spr_vals, na.rm = TRUE)
-        curve_results$SPR_n[u_idx] <- nsim
-        curve_results$Prop_mean[u_idx] <- mean(prop_vals, na.rm = TRUE)
-        curve_results$Prop_sd[u_idx] <- sd(prop_vals, na.rm = TRUE)
-        curve_results$Prop_n[u_idx] <- nsim
-        curve_results$Recruit_mean[u_idx] <- mean(recruit_vals, na.rm = TRUE)
-        curve_results$Recruit_sd[u_idx] <- sd(recruit_vals, na.rm = TRUE)
-        
-        # Calculate Total Yield = YPR × Recruitment
-        total_yield_vals <- ypr_vals * recruit_vals
-        curve_results$TotalYield_mean[u_idx] <- mean(total_yield_vals, na.rm = TRUE)
-        curve_results$TotalYield_sd[u_idx] <- sd(total_yield_vals, na.rm = TRUE)
-      }
-      
       yield_curve_data(curve_results)
     })
   })
-  
+
   # MSY plot (Total Yield and Recruitment)
   output$msy_plot <- renderPlotly({
     curve_data <- yield_curve_data()
