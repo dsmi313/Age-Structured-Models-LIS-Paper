@@ -417,6 +417,15 @@ server <- function(input, output, session) {
     }
     # If custom, don't update anything
   })
+
+  # Keep simulation length tied to maximum age (burn-in + 100 years)
+  observe({
+    req(input$amax)
+    target_years <- input$amax + 120  # (max age + 20-year burn-in) + 100 evaluation years
+    if (!isTRUE(all.equal(input$ymax, target_years))) {
+      updateNumericInput(session, "ymax", value = target_years)
+    }
+  })
   
   # Dynamic UI for deleting individual scenarios
   output$scenario_delete_ui <- renderUI({
@@ -605,7 +614,8 @@ server <- function(input, output, session) {
       # Get parameters
       growth_params <- get_growth_params()
       Amax <- input$amax
-      Ymax <- input$ymax
+      burn_in_years <- Amax + 20
+      Ymax <- burn_in_years + 100
       
       # Weight-length equation (species-specific)
       alfa <- input$wl_a
@@ -860,10 +870,10 @@ server <- function(input, output, session) {
         N[1, ] <- colSums(Cohort)
         
         # Track SSB during burn-in
-        SSB_burnin <- rep(NA, 20)
-        
-        # Build unfished equilibrium over first 20 years
-        for(init_year in 2:min(20, Ymax)) {
+        SSB_burnin <- rep(NA, burn_in_years)
+
+        # Build unfished equilibrium over burn-in period
+        for(init_year in 2:min(burn_in_years, Ymax)) {
           newCohort <- matrix(0, Amax, L_bins)
           
           # Age progression: age a-1 → age a
@@ -882,8 +892,9 @@ server <- function(input, output, session) {
           # STORE SSB for true SSB0 calculation
           SSB_burnin[init_year] <- sum(N[init_year, ] * Fec_bins)
         }
-        
-        SPR_denom <- mean(SSB_burnin[10:20], na.rm = TRUE)
+
+        burn_in_range <- max(1, burn_in_years - 10):burn_in_years
+        SPR_denom <- mean(SSB_burnin[burn_in_range], na.rm = TRUE)
         
         
         # Compute unfished SSB0 for DDR (from unfished equilibrium)
@@ -900,8 +911,8 @@ server <- function(input, output, session) {
         # Get steepness if DDR is enabled
         h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
         
-        # Calculate metrics for unfished burn-in period (years 1-20)
-        for(yr in 1:min(20, Ymax)) {
+        # Calculate metrics for unfished burn-in period
+        for(yr in 1:min(burn_in_years, Ymax)) {
           Yield[yr] <- 0  # No fishing during burn-in
           SSBt[yr] <- sum(N[yr, ] * Fec_bins)  # Track SSB during burn-in
           SPRt[yr] <- SSBt[yr] / SPR_denom  # Build toward equilibrium
@@ -912,7 +923,7 @@ server <- function(input, output, session) {
         # ========================================
         # MAIN FISHING LOOP (COHORT-BASED)
         # ========================================
-        start_year <- min(21, Ymax)
+        start_year <- min(burn_in_years + 1, Ymax)
         for(i in start_year:Ymax) {
           
           # DDR: Calculate recruitment from previous year's SSB
@@ -964,7 +975,7 @@ server <- function(input, output, session) {
         }
         
         # Store results (last 50 years of fished equilibrium)
-        last_50_start <- max(21, Ymax - 49)  # Ensure we don't include unfished burn-in
+        last_50_start <- max(burn_in_years + 1, Ymax - 49)  # Ensure we don't include unfished burn-in
         SPRout <- SPRt[last_50_start:Ymax]
         results$SPR[k] <- mean(SPRout, na.rm = TRUE)
         
@@ -1012,6 +1023,8 @@ server <- function(input, output, session) {
         SSB_mean = rowMeans(all_SSB, na.rm = TRUE),
         SSB_sd = apply(all_SSB, 1, sd, na.rm = TRUE)
       )
+
+      attr(ts_data, "burn_in_years") <- burn_in_years
       
       # Calculate 95% prediction intervals: mean ± 1.96 × SD
       # Constrain to biologically valid ranges
@@ -1188,27 +1201,30 @@ server <- function(input, output, session) {
     req(time_series_data())
     ts_data <- time_series_data()
     
+    burn_in <- attr(ts_data, "burn_in_years", exact = TRUE)
+    if (is.null(burn_in)) burn_in <- 20
+
     # Create separate plots for each metric with ribbons
-    # Add shaded region for unfished burn-in period (years 1-20)
+    # Add shaded region for unfished burn-in period (species-specific)
     p1 <- ggplot(ts_data, aes(x = Year, y = YPR_mean)) +
-      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+      annotate("rect", xmin = 1, xmax = burn_in, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = YPR_lower, ymax = YPR_upper),
                   alpha = 0.2, fill = "steelblue") +
       geom_line(color = "steelblue", size = 1) +
-      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_vline(xintercept = burn_in, linetype = "dotted", color = "gray40", alpha = 0.7) +
       labs(title = "YPR Over Time (Mean ± 95% Prediction Interval)",
-           subtitle = "Gray shaded area: unfished burn-in period (years 1-20)",
+           subtitle = paste0("Gray shaded area: unfished burn-in period (years 1-", burn_in, ")"),
            x = "", y = "YPR (kg)") +
       theme_minimal()
     
     p2 <- ggplot(ts_data, aes(x = Year, y = SPR_mean)) +
-      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+      annotate("rect", xmin = 1, xmax = burn_in, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = SPR_lower, ymax = SPR_upper),
                   alpha = 0.2, fill = "darkgreen") +
       geom_line(color = "darkgreen", size = 1) +
-      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_vline(xintercept = burn_in, linetype = "dotted", color = "gray40", alpha = 0.7) +
       geom_hline(yintercept = 0.40, linetype = "dashed", color = "orange", alpha = 0.7) +
       geom_hline(yintercept = 0.30, linetype = "dashed", color = "red", alpha = 0.7) +
       labs(title = "SPR Over Time (Mean ± 95% Prediction Interval)",
@@ -1218,28 +1234,28 @@ server <- function(input, output, session) {
     
     memorable_inches <- round(input$memorable_size / 25.4, 1)
     p3 <- ggplot(ts_data, aes(x = Year, y = Prop_mean)) +
-      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+      annotate("rect", xmin = 1, xmax = burn_in, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = Prop_lower, ymax = Prop_upper),
                   alpha = 0.2, fill = "darkorange") +
       geom_line(color = "darkorange", size = 1) +
-      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_vline(xintercept = burn_in, linetype = "dotted", color = "gray40", alpha = 0.7) +
       labs(title = paste0("Proportion Memorable (≥", memorable_inches, "\") Over Time"),
            subtitle = "Mean ± 95% prediction interval | Gray: unfished burn-in",
            x = "", y = "Proportion") +
       theme_minimal()
     
     # Calculate 20% SSB threshold (depensation threshold) from unfished SSB
-    SSB0_approx <- ts_data$SSB_mean[20]  # Unfished equilibrium at end of burn-in
+    SSB0_approx <- ts_data$SSB_mean[min(burn_in, nrow(ts_data))]  # Unfished equilibrium at end of burn-in
     depensation_threshold <- SSB0_approx * 0.2
     
     p4 <- ggplot(ts_data, aes(x = Year, y = SSB_mean)) +
-      annotate("rect", xmin = 1, xmax = 20, ymin = -Inf, ymax = Inf,
+      annotate("rect", xmin = 1, xmax = burn_in, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
       geom_ribbon(aes(ymin = SSB_lower, ymax = SSB_upper),
                   alpha = 0.2, fill = "purple") +
       geom_line(color = "purple", size = 1) +
-      geom_vline(xintercept = 20, linetype = "dotted", color = "gray40", alpha = 0.7) +
+      geom_vline(xintercept = burn_in, linetype = "dotted", color = "gray40", alpha = 0.7) +
       geom_hline(yintercept = depensation_threshold, linetype = "dashed", color = "red", alpha = 0.7) +
       labs(title = "Spawning Stock Biomass (SSB) Over Time",
            subtitle = "Dashed red line: 20% SSB₀ (depensation threshold) | Gray: unfished burn-in",
@@ -1548,7 +1564,8 @@ server <- function(input, output, session) {
       
       growth_params <- get_growth_params()
       Amax <- input$amax
-      Ymax <- input$ymax
+      burn_in_years <- Amax + 20
+      Ymax <- burn_in_years + 100
       
       # Weight-length equation (species-specific)
       alfa <- input$wl_a
@@ -1716,8 +1733,9 @@ server <- function(input, output, session) {
       # Get number of simulations
       nsim <- input$yield_curve_nsim
       
-      # Use 100-year simulation for yield curves with longer burn-in to reduce uncertainty
-      Ymax_yield <- 100
+      # Use the same species-specific timeline as main runs: burn-in = Amax + 20, then 100 fishing years
+      burn_in_years_yield <- Amax + 20
+      Ymax_yield <- burn_in_years_yield + 100
       
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.1)  # Reduced resolution for speed (11 points instead of 21)
@@ -1769,8 +1787,8 @@ server <- function(input, output, session) {
           # Set initial population structure
           N[1, ] <- Ro * recruit_dist
           
-          # Build UNFISHED equilibrium over first 20 years (establish baseline for SPR)
-          for(init_year in 2:min(20, Ymax_yield)) {
+          # Build UNFISHED equilibrium over species-specific burn-in (establish baseline for SPR)
+          for(init_year in 2:min(burn_in_years_yield, Ymax_yield)) {
             # Apply UNFISHED survival (natural mortality only, NO fishing)
             N_survive <- N[init_year-1, ] * Unfished_survival_bins
             
@@ -1782,31 +1800,31 @@ server <- function(input, output, session) {
           }
           
           # Compute SPR denominator from unfished equilibrium
-          SPR_denom <- sum(N[min(20, Ymax_yield), ] * Fec_bins)
-          
+          SPR_denom <- sum(N[min(burn_in_years_yield, Ymax_yield), ] * Fec_bins)
+
           # Compute unfished SSB0 for DDR
-          SSB0 <- sum(N[min(20, Ymax_yield), ] * Fec_bins)
+          SSB0 <- sum(N[min(burn_in_years_yield, Ymax_yield), ] * Fec_bins)
           
           if(isTRUE(input$enable_ddr)) {
-            Rcapacity <- rep(NA, Ymax)
+            Rcapacity <- rep(NA, Ymax_yield)
             Rcapacity[1] <- Ro    # seed first recruit year
           } else {
-            Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+            Rcapacity <- Ro * rlnorm(Ymax_yield, 0, sd = sigmaR)
           }
           
           
           # Get steepness if DDR is enabled
           h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
           
-          # Calculate metrics for unfished burn-in period (years 1-20)
-          for(yr in 1:min(20, Ymax_yield)) {
+          # Calculate metrics for unfished burn-in period
+          for(yr in 1:min(burn_in_years_yield, Ymax_yield)) {
             YPR[yr] <- 0
             SPRt[yr] <- sum(N[yr, ] * Fec_bins) / SPR_denom  # Build toward equilibrium
             Prop[yr] <- sum(trophyvul_bins * N[yr, ]) / max(1, sum(N[yr, ]))
           }
-          
-          # Main simulation loop with FISHING (starts at year 21)
-          for(i in (min(21, Ymax_yield)):Ymax_yield) {
+
+          # Main simulation loop with FISHING (starts after burn-in)
+          for(i in (min(burn_in_years_yield + 1, Ymax_yield)):Ymax_yield) {
             # If DDR enabled, calculate recruitment from previous year's SSB
             if(isTRUE(input$enable_ddr)) {
               # Calculate spawning stock biomass from PREVIOUS year
@@ -1851,7 +1869,7 @@ server <- function(input, output, session) {
           }
           
           # Use last 50 years of fished equilibrium for calculations
-          last_50_start <- max(21, Ymax_yield - 49)  # Ensure we don't include unfished burn-in
+          last_50_start <- max(burn_in_years_yield + 1, Ymax_yield - 49)  # Ensure we don't include unfished burn-in
           ypr_vals[k] <- mean(YPR[last_50_start:Ymax_yield], na.rm = TRUE)
           spr_vals[k] <- mean(SPRt[last_50_start:Ymax_yield], na.rm = TRUE)
           prop_vals[k] <- mean(Prop[last_50_start:Ymax_yield], na.rm = TRUE)
