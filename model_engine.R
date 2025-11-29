@@ -77,14 +77,10 @@ build_mortality <- function(input, length_bins) {
 }
 
 build_fecundity <- function(input, Wt_bins, maturity_ogive_bins) {
-  # Default exponent (Barneche et al. 2018)
   fec_exp <- 1.18
-
-  # Crappie use species-specific exponent
   if (input$species %in% c("white_crappie", "black_crappie")) {
     fec_exp <- 1.27
   }
-
   (Wt_bins ^ fec_exp) * maturity_ogive_bins
 }
 
