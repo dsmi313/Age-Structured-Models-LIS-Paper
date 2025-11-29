@@ -423,7 +423,7 @@ server <- function(input, output, session) {
   # Keep simulation length tied to maximum age (burn-in + 100 years)
   observe({
     req(input$amax)
-    burn_in_years <- input$amax + 20
+    burn_in_years <- max(20, input$amax + 20)
     target_years <- burn_in_years + 100  # burn-in + evaluation window
     if (!isTRUE(all.equal(input$ymax, target_years))) {
       updateNumericInput(session, "ymax", value = target_years)

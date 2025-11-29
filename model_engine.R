@@ -449,7 +449,7 @@ simulate_population <- function(U, static, params) {
       SSB_sd = apply(all_SSB, 1, sd, na.rm = TRUE)
     )
 
-    attr(ts_data, "burn_in_years") <- burn_in_years
+    attr(ts_data, "burn_in_years") <- burn_in_span
 
     ts_data$YPR_lower <- pmax(0, ts_data$YPR_mean - 1.96 * ts_data$YPR_sd)
     ts_data$YPR_upper <- ts_data$YPR_mean + 1.96 * ts_data$YPR_sd
