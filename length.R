@@ -1789,13 +1789,14 @@ server <- function(input, output, session) {
           }
           
           # Compute SPR denominator from unfished equilibrium
-          SPR_denom <- sum(N[min(burn_in_years_yield, Ymax_yield), ] * Fec_bins)
+          unfished_idx <- min(burn_in_years_yield, Ymax_yield)
+          SPR_denom <- sum(N[unfished_idx, ] * Fec_bins)
 
           # Get steepness if DDR is enabled
           h <- ifelse(isTRUE(input$enable_ddr), input$steepness, 0.7)
 
           # Compute unfished SSB0 for DDR
-          SSB0 <- sum(N[min(burn_in_years_yield, Ymax_yield), ] * Fec_bins)
+          SSB0 <- sum(N[unfished_idx, ] * Fec_bins)
 
           # Pre-compute Beverton-Holt constants for DDR
           if(isTRUE(input$enable_ddr)) {
@@ -1811,12 +1812,15 @@ server <- function(input, output, session) {
             Rcapacity <- Ro * rlnorm(Ymax_yield, 0, sd = sigmaR)
           }
 
-          # Calculate metrics for unfished burn-in period
-          for(yr in 1:min(burn_in_years_yield, Ymax_yield)) {
-            YPR[yr] <- 0
-            SPRt[yr] <- sum(N[yr, ] * Fec_bins) / SPR_denom  # Build toward equilibrium
-            Prop[yr] <- sum(trophyvul_bins * N[yr, ]) / max(1, sum(N[yr, ]))
-          }
+          # Calculate metrics for unfished burn-in period using vectorized operations
+          burn_years <- seq_len(unfished_idx)
+          fecundity_unfished <- as.vector(N[burn_years, , drop = FALSE] %*% Fec_bins)
+          abundance_unfished <- rowSums(N[burn_years, , drop = FALSE])
+          trophy_unfished <- as.vector(N[burn_years, , drop = FALSE] %*% trophyvul_bins)
+
+          YPR[burn_years] <- 0
+          SPRt[burn_years] <- fecundity_unfished / SPR_denom
+          Prop[burn_years] <- trophy_unfished / pmax(1, abundance_unfished)
 
           # Main simulation loop with FISHING (starts after burn-in)
           for(i in (min(burn_in_years_yield + 1, Ymax_yield)):Ymax_yield) {
