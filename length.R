@@ -319,7 +319,9 @@ server <- function(input, output, session) {
       updateNumericInput(session, "t0", value = 0.197)  # LIS paper
       updateNumericInput(session, "nat_mort", value = 0.374)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
-      updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
+      updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age    
+      updateNumericInput(session, "ymax", value = 8 + 20 + 100)
+
       showNotification("Loaded White Crappie parameters (Smith et al. 2025)", type = "message")
       
     } else if (input$species == "black_crappie") {
@@ -333,6 +335,8 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.19)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
       updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
+      updateNumericInput(session, "ymax", value = 8 + 20 + 100)
+      
       showNotification("Loaded Black Crappie parameters (FishBase median)", type = "message")
       
     } else if (input$species == "walleye") {
@@ -348,6 +352,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.32)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 1.1)  # Very high recruitment variability (literature: CV=112%)
       updateNumericInput(session, "amax", value = 15)  # Walleye can live 15-20 years
+      updateNumericInput(session, "ymax", value = 15 + 20 + 100)
       showNotification("Loaded Walleye parameters (FishBase median)", type = "message")
       
     } else if (input$species == "lmb") {
@@ -363,6 +368,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.22)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: CV>0.5)
       updateNumericInput(session, "amax", value = 12)  # Largemouth bass maximum age
+      updateNumericInput(session, "ymax", value = 12 + 20 + 100)
       showNotification("Loaded Largemouth Bass parameters (FishBase median)", type = "message")
       
     } else if (input$species == "smb") {
@@ -378,6 +384,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.17)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.7)  # Moderate-high recruitment variability (literature: CV=52-80%)
       updateNumericInput(session, "amax", value = 12)  # Smallmouth bass maximum age
+      updateNumericInput(session, "ymax", value = 12 + 20 + 100)
       showNotification("Loaded Smallmouth Bass parameters (FishBase median)", type = "message")
       
     } else if (input$species == "channel_catfish") {
@@ -393,6 +400,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.17)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
       updateNumericInput(session, "amax", value = 24)  # Channel catfish can live 20-24 years
+      updateNumericInput(session, "ymax", value = 24 + 20 + 100)
       showNotification("Loaded Channel Catfish parameters (FishBase median)", type = "message")
       
     } else if (input$species == "blue_catfish") {
@@ -408,6 +416,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "nat_mort", value = 0.15)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: σR=0.49, Hilling et al. 2025)
       updateNumericInput(session, "amax", value = 30)  # Blue catfish can live 25-30 years
+      updateNumericInput(session, "ymax", value = 30 + 20 + 100)
       showNotification("Loaded Blue Catfish parameters (FishBase median)", type = "message")
     }
     # If custom, don't update anything
@@ -600,7 +609,7 @@ server <- function(input, output, session) {
       # Get parameters
       growth_params <- get_growth_params()
       Amax <- input$amax
-      Ymax <- input$ymax
+      Ymax <- Amax + 100 + 20
       
       # Weight-length equation (species-specific)
       alfa <- input$wl_a
@@ -803,7 +812,7 @@ server <- function(input, output, session) {
       }
       
       burnin_years <- min(Ymax, input$amax + 20)
-
+      
       for(k in 1:nsim) {
         
         incProgress(1/nsim, detail = paste("Simulation", k, "of", nsim))
@@ -819,29 +828,29 @@ server <- function(input, output, session) {
         # Set initial population structure (UNFISHED equilibrium in length bins)
         # Start with recruitment distributed across length bins
         N[1, ] <- Ro * recruit_dist
-
+        
         # Track SSB during burn-in for SPR baseline
         SSB_burnin <- rep(NA, burnin_years)
         SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
-
+        
         # Build UNFISHED equilibrium over the burn-in window (establish baseline for SPR)
         for(init_year in 2:burnin_years) {
           # Apply UNFISHED survival (natural mortality only, NO fishing)
           N_survive <- N[init_year-1, ] * Unfished_survival_bins
-
+          
           # Apply growth (move to new length bins)
           N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
-
+          
           # Add stochastic recruitment (unfished populations still have recruitment variability)
           N[init_year, ] <- N[init_year, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
-
+          
           # Track SSB for this burn-in year
           SSB_burnin[init_year] <- sum(N[init_year, ] * Fec_bins)
         }
-
+        
         burnin_start <- max(1, burnin_years - 9)
         SPR_denom <- mean(SSB_burnin[burnin_start:burnin_years], na.rm = TRUE)
-
+        
         # Compute unfished SSB0 for DDR (from unfished equilibrium)
         SSB0 <- SPR_denom
         
@@ -865,7 +874,7 @@ server <- function(input, output, session) {
           YPR[yr] <- 0
           Prop[yr] <- sum(trophyvul_bins * N[yr, ]) / max(1, sum(N[yr, ]))
         }
-
+        
         # Main simulation loop with FISHING (starts after burn-in)
         start_year <- min(burnin_years + 1, Ymax)
         for(i in start_year:Ymax) {
@@ -964,7 +973,7 @@ server <- function(input, output, session) {
         SSB_mean = rowMeans(all_SSB, na.rm = TRUE),
         SSB_sd = apply(all_SSB, 1, sd, na.rm = TRUE)
       )
-
+      
       ts_data$burnin_years <- burnin_years
       
       # Calculate 95% prediction intervals: mean ± 1.96 × SD
@@ -1125,7 +1134,7 @@ server <- function(input, output, session) {
   output$timeseries_plot <- renderPlotly({
     req(time_series_data())
     ts_data <- time_series_data()
-
+    
     burnin_years_plot <- if("burnin_years" %in% names(ts_data)) ts_data$burnin_years[1] else 20
     
     # Create separate plots for each metric with ribbons
@@ -1141,7 +1150,7 @@ server <- function(input, output, session) {
            subtitle = "Gray shaded area: unfished burn-in period",
            x = "", y = "YPR (kg)") +
       theme_minimal()
-
+    
     p2 <- ggplot(ts_data, aes(x = Year, y = SPR_mean)) +
       annotate("rect", xmin = 1, xmax = burnin_years_plot, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
@@ -1168,12 +1177,12 @@ server <- function(input, output, session) {
            subtitle = "Mean ± 95% prediction interval | Gray: unfished burn-in",
            x = "", y = "Proportion") +
       theme_minimal()
-
+    
     # Calculate 20% SSB threshold (depensation threshold) from unfished SSB
     burnin_index <- min(burnin_years_plot, nrow(ts_data))
     SSB0_approx <- ts_data$SSB_mean[burnin_index]  # Unfished equilibrium at end of burn-in
     depensation_threshold <- SSB0_approx * 0.2
-
+    
     p4 <- ggplot(ts_data, aes(x = Year, y = SSB_mean)) +
       annotate("rect", xmin = 1, xmax = burnin_years_plot, ymin = -Inf, ymax = Inf,
                fill = "gray", alpha = 0.2) +
@@ -1524,7 +1533,7 @@ server <- function(input, output, session) {
       
       growth_params <- get_growth_params()
       Amax <- input$amax
-      Ymax <- input$ymax
+      Ymax <- Amax + 120
       
       # Weight-length equation (species-specific)
       alfa <- input$wl_a
@@ -1677,8 +1686,8 @@ server <- function(input, output, session) {
       nsim <- input$yield_curve_nsim
       
       # Use 100-year simulation for yield curves with longer burn-in to reduce uncertainty
-      Ymax_yield <- 100
-      burnin_yield <- min(Ymax_yield, input$amax + 20)
+      Ymax_yield <- Amax + 20 + 100
+      burnin_yield <- Amax + 20
       
       # Test exploitation rates from 0 to 1
       U_values <- seq(0, 1, by = 0.1)  # Reduced resolution for speed (11 points instead of 21)
@@ -1736,19 +1745,19 @@ server <- function(input, output, session) {
           for(init_year in 2:burnin_yield) {
             # Apply UNFISHED survival (natural mortality only, NO fishing)
             N_survive <- N[init_year-1, ] * Unfished_survival_bins
-
+            
             # Apply growth (move to new length bins)
             N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
-
+            
             # Add stochastic recruitment (unfished populations still have recruitment variability)
             N[init_year, ] <- N[init_year, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
-
+            
             SSB_burnin[init_year] <- sum(N[init_year, ] * Fec_bins)
           }
-
+          
           burnin_start <- max(1, burnin_yield - 9)
           SPR_denom <- mean(SSB_burnin[burnin_start:burnin_yield], na.rm = TRUE)
-
+          
           # Compute unfished SSB0 for DDR
           SSB0 <- SPR_denom
           
@@ -1770,7 +1779,7 @@ server <- function(input, output, session) {
             SPRt[yr] <- sum(N[yr, ] * Fec_bins) / SPR_denom  # Build toward equilibrium
             Prop[yr] <- sum(trophyvul_bins * N[yr, ]) / max(1, sum(N[yr, ]))
           }
-
+          
           # Main simulation loop with FISHING (starts after burn-in)
           start_year_yield <- min(burnin_yield + 1, Ymax_yield)
           for(i in start_year_yield:Ymax_yield) {
