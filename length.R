@@ -166,10 +166,10 @@ ui <- fluidPage(
         
         tabPanel("Population Structure",
                  br(),
-                 h4("Age Distribution at Equilibrium"),
+                h4("Age Distribution at Equilibrium"),
                  helpText("Shows the number of fish in each age class at equilibrium. Ages are tracked directly from recruited cohorts through the simulation (no back-calculation).",
                           tags$br(),
-                          tags$strong("Bars show mean abundance."), "Shaded area shows 95% prediction interval (mean ± 1.96 × SD) across simulations, representing uncertainty from recruitment variability and growth variation."),
+                          tags$strong("Bars show median abundance across simulations."), "Shaded area shows a 95% prediction interval (2.5th–97.5th percentiles) capturing recruitment and growth variability."),
                  plotlyOutput("pop_structure", height = "500px"),
                  br(),
                  h4("Length-Frequency Distribution"),
