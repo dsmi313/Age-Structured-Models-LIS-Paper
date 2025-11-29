@@ -282,6 +282,7 @@ simulate_population <- function(U, static, params) {
   SPRt <- matrix(0, nrow = Ymax, ncol = params$nsim)
   Prop <- matrix(0, nrow = Ymax, ncol = params$nsim)
   SSBt <- matrix(0, nrow = Ymax, ncol = params$nsim)
+  mean_harvest_length <- matrix(NA_real_, nrow = Ymax, ncol = params$nsim)
   N <- matrix(0, nrow = Ymax, ncol = L_bins)
   all_YPR <- all_SPR <- all_Prop <- all_SSB <- matrix(0, nrow = Ymax, ncol = params$nsim)
   all_Abundance <- matrix(0, nrow = L_bins, ncol = params$nsim)
@@ -343,6 +344,14 @@ simulate_population <- function(U, static, params) {
       Yield_weight <- sum(colSums(Harvested) * Wt_bins)
       Trophy_prop <- ifelse(sum(Cohort) > 0, sum(colSums(Trophies)) / sum(Cohort), 0)
 
+      harvest_counts_by_bin <- colSums(Harvested)
+      harvest_total <- sum(harvest_counts_by_bin)
+      mean_harvest_length[t, k] <- if (harvest_total > 0) {
+        sum(harvest_counts_by_bin * bin_midpoints) / harvest_total
+      } else {
+        NA_real_
+      }
+
       YPR[t, k] <- Yield_weight
       SSBt[t, k] <- SSB
       Prop[t, k] <- Trophy_prop
@@ -377,6 +386,9 @@ simulate_population <- function(U, static, params) {
       Prop = Prop[Ymax, k],
       Recruit = sum(Cohort)
     )
+
+    last_50_start <- max(burn_in_years + 1, Ymax - 49)
+    results$MeanLengthHarvested <- mean(mean_harvest_length[last_50_start:Ymax, k], na.rm = TRUE)
 
     if (k == 1) {
       results_accum <- results
