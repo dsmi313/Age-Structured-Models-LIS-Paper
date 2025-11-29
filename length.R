@@ -169,7 +169,7 @@ ui <- fluidPage(
                 h4("Age Distribution at Equilibrium"),
                  helpText("Shows the number of fish in each age class at equilibrium. Ages are tracked directly from recruited cohorts through the simulation (no back-calculation).",
                           tags$br(),
-                          tags$strong("Bars show median abundance across simulations."), "Shaded area shows a 95% prediction interval (2.5th–97.5th percentiles) capturing recruitment and growth variability."),
+                          tags$strong("Bars show median abundance across simulations."), "Shaded area shows a 95% prediction interval (median ± 1.96 × SD) capturing recruitment and growth variability."),
                  plotlyOutput("pop_structure", height = "500px"),
                  br(),
                  h4("Length-Frequency Distribution"),
@@ -1031,12 +1031,10 @@ server <- function(input, output, session) {
         Age = 1:Amax,
         Abundance_mean = rowMeans(all_AgeAbundance, na.rm = TRUE),
         Abundance_median = apply(all_AgeAbundance, 1, median, na.rm = TRUE),
-        Abundance_sd = apply(all_AgeAbundance, 1, sd, na.rm = TRUE),
-        Abundance_q025 = apply(all_AgeAbundance, 1, quantile, probs = 0.025, na.rm = TRUE),
-        Abundance_q975 = apply(all_AgeAbundance, 1, quantile, probs = 0.975, na.rm = TRUE)
+        Abundance_sd = apply(all_AgeAbundance, 1, sd, na.rm = TRUE)
       )
-      age_data$Abundance_lower <- pmax(0, age_data$Abundance_mean - 1.96 * age_data$Abundance_sd)
-      age_data$Abundance_upper <- age_data$Abundance_mean + 1.96 * age_data$Abundance_sd
+      age_data$Abundance_lower <- pmax(0, age_data$Abundance_median - 1.96 * age_data$Abundance_sd)
+      age_data$Abundance_upper <- age_data$Abundance_median + 1.96 * age_data$Abundance_sd
 
       pop_structure_data(list(length_data = length_data, age_data = age_data))
       
@@ -1259,18 +1257,18 @@ server <- function(input, output, session) {
       left_join(age_data, by = "Age") %>%
       mutate(
         Abundance_median = replace_na(Abundance_median, 0),
-        Abundance_q025 = replace_na(Abundance_q025, 0),
-        Abundance_q975 = replace_na(Abundance_q975, 0)
+        Abundance_lower = replace_na(Abundance_lower, 0),
+        Abundance_upper = replace_na(Abundance_upper, 0)
       )
-    
+
     p <- ggplot(age_data, aes(x = Age)) +
-      geom_ribbon(aes(ymin = Abundance_q025, ymax = Abundance_q975),
+      geom_ribbon(aes(ymin = Abundance_lower, ymax = Abundance_upper),
                   fill = "steelblue", alpha = 0.3) +
       geom_col(aes(y = Abundance_median), fill = "steelblue", alpha = 0.7, width = 0.8) +
       geom_line(aes(y = Abundance_median), color = "darkblue", size = 1) +
       scale_x_continuous(breaks = 1:max_age, limits = c(0.5, max_age + 0.5)) +
       labs(title = "Age Distribution at Equilibrium",
-           subtitle = "Bars show median abundance. Shaded area shows 95% prediction interval across simulations (median ± quantiles).",
+           subtitle = "Bars show median abundance. Shaded area shows 95% prediction interval across simulations (median ± 1.96 × SD).",
            x = "Age (years)", y = "Abundance") +
       theme_minimal()
     
