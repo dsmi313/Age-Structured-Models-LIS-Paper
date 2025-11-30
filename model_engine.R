@@ -346,6 +346,8 @@ simulate_population <- function(U, static, params) {
         if (total_age > 0) sum(age_row * Vulharv_bins) / total_age else 0
       })
 
+      age_selectivity[is.na(age_selectivity)] <- 0
+
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
       annual_harvest_bins <- numeric(L_bins)
       for(a in Amax:2) {
