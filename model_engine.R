@@ -292,8 +292,9 @@ simulate_population <- function(U, static, params) {
       SSB_burnin[t] <- compute_ssb(N[t, ], Fec_bins)
     }
     
-    burn_in_window_start <- max(1, burn_in_span - 10 + 1)
-    SPR_denom <- mean(SSB_burnin[burn_in_window_start:burn_in_span], na.rm = TRUE)
+    # Correct unfished reference SSB (U = 0, length-based mortality only)
+    SPR_denom <- mean(SSB_burnin[max(1, burn_in_span - 10 + 1):burn_in_span], na.rm = TRUE)
+    if (!is.finite(SPR_denom) || SPR_denom <= 0) SPR_denom <- 1
     SSB0 <- SPR_denom
     
     if (isTRUE(params$enable_ddr)) {
