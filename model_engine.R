@@ -341,25 +341,19 @@ simulate_population <- function(U, static, params) {
         }
       }
 
-      age_selectivity <- apply(Cohort, 1, function(age_row) {
-        total_age <- sum(age_row)
-        if (total_age > 0) sum(age_row * Vulharv_bins) / total_age else 0
-      })
-
-      age_selectivity[is.na(age_selectivity)] <- 0
+      # Length-based fishing mortality and total mortality
+      F_len <- F_inst * Vulharv_bins
+      Z_bins <- M_bins + F_len
+      S_bins_total <- exp(-Z_bins)
+      catch_fraction_bins <- (F_len / Z_bins) * (1 - S_bins_total)
+      catch_fraction_bins[!is.finite(catch_fraction_bins)] <- 0
 
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
       annual_harvest_bins <- numeric(L_bins)
       for(a in Amax:2) {
-        sel_a <- age_selectivity[a - 1]
-        total_Z_bins <- M_bins + F_inst * sel_a
-        survival_bins_age <- exp(-total_Z_bins)
-
-        survivors <- Cohort[a - 1, ] * survival_bins_age
+        survivors <- Cohort[a - 1, ] * S_bins_total
         newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
-
-        catch_fraction <- ifelse(total_Z_bins > 0, (F_inst * sel_a) / total_Z_bins * (1 - survival_bins_age), 0)
-        annual_harvest_bins <- annual_harvest_bins + Cohort[a - 1, ] * catch_fraction
+        annual_harvest_bins <- annual_harvest_bins + Cohort[a - 1, ] * catch_fraction_bins
       }
 
       newCohort[1, ] <- Rcapacity[t] * recruit_dist
@@ -371,7 +365,7 @@ simulate_population <- function(U, static, params) {
       SSB_now <- compute_ssb(N[t, ], Fec_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
-      YPR[t, k] <- if (Rcapacity[t] > 0) Yield_weight / Rcapacity[t] else 0
+      YPR[t, k] <- Yield_weight / Ro
       SSBt[t, k] <- SSB_now
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- Trophy_prop
