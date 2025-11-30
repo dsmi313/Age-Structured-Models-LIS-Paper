@@ -67,12 +67,10 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
 build_mortality <- function(input, length_bins) {
   M_adult <- input$nat_mort
   M_bins <- rep(M_adult, length_bins$L_bins)
-  S_bins <- rep(exp(-M_adult), length_bins$L_bins)
-  
+
   list(
     M_bins = M_bins,
-    S_bins = S_bins,
-    Unfished_survival_bins = S_bins
+    Unfished_survival_bins = exp(-M_bins)
   )
 }
 
@@ -217,7 +215,7 @@ build_static_components <- function(input, growth_params = get_growth_params(inp
     Vulcap_bins = vulnerabilities$Vulcap_bins,
     Vulharv_bins = vulnerabilities$Vulharv_bins,
     trophyvul_bins = vulnerabilities$trophyvul_bins,
-    S_bins = mortality$S_bins,
+    M_bins = mortality$M_bins,
     Unfished_survival_bins = mortality$Unfished_survival_bins,
     Growth_matrix = Growth_matrix,
     recruit_dist = recruit_dist,
@@ -242,15 +240,13 @@ simulate_population <- function(U, static, params) {
   trophyvul_bins <- static$trophyvul_bins
   Wt_bins <- static$Wt_bins
   Fec_bins <- static$Fec_bins
-  S_bins <- static$S_bins
+  M_bins <- static$M_bins
   Unfished_survival_bins <- static$Unfished_survival_bins
   Growth_matrix <- static$Growth_matrix
   recruit_dist <- static$recruit_dist
-  
-  F_bins <- Vulharv_bins * U
-  Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
-  Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
-  
+
+  F_inst <- -log(1 - U)
+
   YPR <- matrix(0, nrow = Ymax, ncol = params$nsim)
   SPRt <- matrix(0, nrow = Ymax, ncol = params$nsim)
   Prop <- matrix(0, nrow = Ymax, ncol = params$nsim)
@@ -318,7 +314,7 @@ simulate_population <- function(U, static, params) {
       YPR[yr, k] <- 0
       Prop[yr, k] <- ifelse(sum(N[yr, ]) > 0, sum(trophyvul_bins * N[yr, ]) / sum(N[yr, ]), 0)
     }
-    
+
     start_year <- min(burn_in_span + 1, Ymax)
     for(t in start_year:Ymax) {
       if (isTRUE(params$enable_ddr)) {
@@ -344,19 +340,32 @@ simulate_population <- function(U, static, params) {
           Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
         }
       }
-      
+
+      age_selectivity <- apply(Cohort, 1, function(age_row) {
+        total_age <- sum(age_row)
+        if (total_age > 0) sum(age_row * Vulharv_bins) / total_age else 0
+      })
+
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
+      annual_harvest_bins <- numeric(L_bins)
       for(a in Amax:2) {
-        survivors <- Cohort[a - 1, ] * Survival_bins
+        sel_a <- age_selectivity[a - 1]
+        total_Z_bins <- M_bins + F_inst * sel_a
+        survival_bins_age <- exp(-total_Z_bins)
+
+        survivors <- Cohort[a - 1, ] * survival_bins_age
         newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
+
+        catch_fraction <- ifelse(total_Z_bins > 0, (F_inst * sel_a) / total_Z_bins * (1 - survival_bins_age), 0)
+        annual_harvest_bins <- annual_harvest_bins + Cohort[a - 1, ] * catch_fraction
       }
-      
+
       newCohort[1, ] <- Rcapacity[t] * recruit_dist
-      
+
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
-      
-      Yield_weight <- sum(Wt_bins * Vulharv_bins * N[t, ]) * U
+
+      Yield_weight <- sum(Wt_bins * annual_harvest_bins)
       SSB_now <- compute_ssb(N[t, ], Fec_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
@@ -365,7 +374,7 @@ simulate_population <- function(U, static, params) {
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- Trophy_prop
       
-      harvest_by_bin <- N[t, ] * Vulharv_bins * U
+      harvest_by_bin <- annual_harvest_bins
       harvest_total <- sum(harvest_by_bin)
       mean_harvest_length[t, k] <- if (harvest_total > 0) {
         sum(harvest_by_bin * bin_midpoints) / harvest_total
