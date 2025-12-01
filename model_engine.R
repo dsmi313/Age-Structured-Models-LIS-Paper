@@ -437,14 +437,13 @@ simulate_population <- function(U, static, params) {
       
     }
     
-    results <- data.frame(
-      YPR = YPR[Ymax, k],
-      SPR = SPRt[Ymax, k],
-      Prop = Prop[Ymax, k],
-      Recruit = sum(Cohort[1, ])
-    )
-    
     last_50_start <- max(start_year, Ymax - 49)
+    results <- data.frame(
+      YPR = mean(YPR[last_50_start:Ymax, k], na.rm = TRUE),
+      SPR = mean(SPRt[last_50_start:Ymax, k], na.rm = TRUE),
+      Prop = mean(Prop[last_50_start:Ymax, k], na.rm = TRUE),
+      Recruit = mean(Rcapacity[last_50_start:Ymax], na.rm = TRUE)
+    )
     results$MeanLengthHarvested <- mean(mean_harvest_length[last_50_start:Ymax, k], na.rm = TRUE)
     
     if (k == 1) {
