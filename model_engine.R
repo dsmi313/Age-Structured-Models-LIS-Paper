@@ -319,13 +319,10 @@ simulate_population <- function(U, static, params) {
       }
 
       # BURN-IN: Always use R0 (no DDR) to establish unfished equilibrium
-      R <- Ro
-
-      # Add stochastic noise (or deterministic if rec_cv = 0)
       if (params$rec_cv == 0) {
-        R <- max(0, R)
+        R <- Ro
       } else {
-        R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
+        R <- Ro * rlnorm(1, 0, sd = sigmaR)
       }
       newCohort[1, ] <- R * recruit_dist
 
