@@ -48,6 +48,9 @@ ui <- fluidPage(
       numericInput("R0", "Unfished Recruitment (R0):", value = 10000, min = 100, max = 1000000, step = 1000),
       helpText(tags$small(tags$em("Average recruitment in unfished equilibrium (number of age-1 fish)"))),
 
+      numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 50, step = 1),
+      helpText(tags$small(tags$em("Maximum age class in the model"))),
+
       # Density-Dependent Recruitment (Experimental)
       h4("Recruitment Dynamics (Experimental)", style = "color: orange;"),
       checkboxInput("enable_ddr", "Enable Density-Dependent Recruitment (Beverton-Holt)", value = FALSE),
@@ -61,9 +64,6 @@ ui <- fluidPage(
         checkboxInput("enable_depensation", "Enable Depensation (Allee Effects)", value = FALSE),
         helpText(tags$small(tags$em("When enabled, recruitment crashes when SSB drops below 20% of unfished level. Simulates mate-finding failure, predator swamping failure, and other critical thresholds.")))
       ),
-      
-      numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 50, step = 1),
-      helpText(tags$small(tags$em("Maximum age class in the model"))),
       br(),
       
       # Growth Parameters
