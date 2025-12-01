@@ -289,6 +289,7 @@ simulate_population <- function(U, static, params) {
   all_YPR <- all_SPR <- all_Prop <- all_SSB <- matrix(0, nrow = Ymax, ncol = params$nsim)
   all_Abundance <- matrix(0, nrow = L_bins, ncol = params$nsim)
   all_AgeAbund <- matrix(0, nrow = Amax, ncol = params$nsim)
+  all_Recruit <- matrix(0, nrow = Ymax, ncol = params$nsim)
   
   burn_in_span <- min(burn_in_years, Ymax)
   
@@ -436,8 +437,9 @@ simulate_population <- function(U, static, params) {
       
       
     }
-    
+
     last_50_start <- max(start_year, Ymax - 49)
+    all_Recruit[, k] <- Rcapacity
     results <- data.frame(
       YPR = mean(YPR[last_50_start:Ymax, k], na.rm = TRUE),
       SPR = mean(SPRt[last_50_start:Ymax, k], na.rm = TRUE),
