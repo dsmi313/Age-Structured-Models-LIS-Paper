@@ -710,14 +710,6 @@ server <- function(input, output, session) {
       # UNFISHED survival by length bin (natural mortality only, NO fishing)
       # This is used for building unfished equilibrium and SPR denominator
       Unfished_survival_bins <- S_bins
-
-      # FISHED survival by length bin (includes fishing mortality)
-      # Fishing mortality by length bin
-      F_bins <- Vulharv_bins * U
-      # Release mortality from discarded fish
-      Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
-      # Total annual survival by length bin WITH FISHING
-      Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
       
       # ========================================================================
       # GROWTH TRANSITION MATRIX
@@ -927,13 +919,17 @@ server <- function(input, output, session) {
             Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
           }
           
-          # Apply survival to previous year's population by age
-          age_survive <- age_len * matrix(Survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
-          
+          # Apply natural and fishing mortality by age and length bin
+          after_M <- age_len * matrix(S_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
+          harvest <- after_M * matrix(Vulharv_bins * U, nrow = Amax, ncol = L_bins, byrow = TRUE)
+          disc_catch <- after_M * matrix((Vulcap_bins - Vulharv_bins) * U, nrow = Amax, ncol = L_bins, byrow = TRUE)
+          discard_death <- disc_catch * DisMort
+          N_survive <- after_M - harvest - discard_death
+
           # Apply growth (transition to new length bins) and age the cohorts
           new_age_len <- matrix(0, Amax, L_bins)
           for(a in 1:(Amax - 1)) {
-            grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
+            grown <- as.vector(N_survive[a, ] %*% Growth_matrix)
             new_age_len[a + 1, ] <- grown
           }
           
@@ -942,11 +938,11 @@ server <- function(input, output, session) {
           
           age_len <- new_age_len
           N[i, ] <- colSums(age_len)
-          
+
           # Calculate annual metrics
           total_recruits <- Rcapacity[i]  # Now correctly using actual recruitment
-          
-          Yield[i] <- sum(Wt_bins * Vulharv_bins * N[i, ]) * U
+          harvested_numbers <- colSums(harvest)
+          Yield[i] <- sum(Wt_bins * harvested_numbers)
           SSBt[i] <- sum(N[i, ] * Fec_bins)  # Spawning stock biomass
           SPRt[i] <- SSBt[i] / SPR_denom
           # YPR = Yield / Recruitment. With DDR, this has a less clean interpretation than
@@ -1753,14 +1749,6 @@ server <- function(input, output, session) {
         
         U_test <- U_values[u_idx]
         
-        # Fishing mortality and survival by length bin (for this U)
-        F_bins <- Vulharv_bins * U_test
-        Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U_test * DisMort
-        Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
-        
-        # Harvest weight by length bin
-        Wt_harvest_bins <- Wt_bins * Vulharv_bins
-        
         ypr_vals <- numeric(nsim)
         spr_vals <- numeric(nsim)
         prop_vals <- numeric(nsim)
@@ -1844,21 +1832,25 @@ server <- function(input, output, session) {
               Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
             }
             
-            # Apply FISHED survival (includes fishing mortality)
-            N_survive <- N[i-1, ] * Survival_bins
-            
+            # Apply natural and fishing mortality (proportional exploitation)
+            after_M <- N[i-1, ] * S_bins
+            harvest <- after_M * Vulharv_bins * U_test
+            disc_catch <- after_M * (Vulcap_bins - Vulharv_bins) * U_test
+            discard_death <- disc_catch * DisMort
+            N_survive <- after_M - harvest - discard_death
+
             # Apply growth (move to new length bins)
             N[i, ] <- as.vector(N_survive %*% Growth_matrix)
-            
+
             # Add recruitment
             N[i, ] <- N[i, ] + Rcapacity[i] * recruit_dist
-            
+
             # Calculate metrics
-            harvest_weight <- sum(Wt_harvest_bins * N[i, ])
+            harvested_weight <- sum(Wt_bins * harvest)
             fecundity_now <- sum(Fec_bins * N[i, ])
             abundance_now <- max(1, sum(N[i, ]))  # Prevent division by zero
-            
-            YPR[i] <- (harvest_weight * U_test) / max(1, Rcapacity[i])  # Prevent division by zero
+
+            YPR[i] <- harvested_weight / max(1, Rcapacity[i])  # Prevent division by zero
             SPRt[i] <- fecundity_now / SPR_denom
             Prop[i] <- sum(trophyvul_bins * N[i, ]) / abundance_now
           }
