@@ -67,17 +67,21 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
 }
 
 build_mortality <- function(input, length_bins) {
-  # Size-dependent natural mortality
-  M_adult <- input$nat_mort
-  mat_size_val <- input$mat_size
-  
-  M_bins <- rep(M_adult, length_bins$L_bins)
-  
-  # Juveniles have higher mortality
-  juvenile_threshold <- mat_size_val * 0.5
-  M_bins[length_bins$bin_midpoints < juvenile_threshold] <- M_adult * 2.0
-  M_bins[length_bins$bin_midpoints >= juvenile_threshold & length_bins$bin_midpoints < mat_size_val] <- M_adult * 1.5
-  
+  # Base natural mortality M
+  M <- input$nat_mort
+  mat_size <- input$mat_size
+
+  M_bins <- rep(M, length_bins$L_bins)
+
+  # Juveniles: double mortality
+  M_bins[length_bins$bin_midpoints < 0.5 * mat_size] <- M * 2
+
+  # Subadults: 1.5 × M
+  M_bins[length_bins$bin_midpoints >= 0.5 * mat_size & length_bins$bin_midpoints < mat_size] <- M * 1.5
+
+  # Adults: M as-is
+
+  # Annual survival due to natural mortality alone
   S_bins <- exp(-M_bins)
   
   list(
@@ -262,9 +266,9 @@ simulate_population <- function(U, static, params) {
   Growth_matrix <- static$Growth_matrix
   recruit_dist <- static$recruit_dist
 
-  Harvest_mort_bins <- Vulharv_bins * U
+  F_bins <- Vulharv_bins * U
   Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
-  S_fished <- S_bins * (1 - Harvest_mort_bins) * (1 - Release_mort_bins)
+  S_fished <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
   
   YPR <- matrix(0, nrow = Ymax, ncol = params$nsim)
   SPRt <- matrix(0, nrow = Ymax, ncol = params$nsim)
@@ -365,14 +369,13 @@ simulate_population <- function(U, static, params) {
       N[t, ] <- colSums(Cohort)
 
       lf_a <- N[t, ]
-      yield <- U * sum(Vulharv_bins * Wt_bins * lf_a)
-      SSB_now <- sum(Fec_bins * lf_a)
-      Trophy_prop <- ifelse(sum(lf_a) > 0, sum(trophyvul_bins * lf_a) / sum(lf_a), 0)
+      yield_t <- sum(F_bins * Wt_bins * lf_a)
+      SSB_now <- sum(lf_a * Fec_bins)
 
-      YPR[t, k] <- ifelse(R_now > 0, yield / R_now, 0)
+      YPR[t, k] <- yield_t / R_now
       SSBt[t, k] <- SSB_now
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
-      Prop[t, k] <- Trophy_prop
+      Prop[t, k] <- sum(lf_a * trophyvul_bins) / max(1, sum(lf_a))
 
       harvest_by_bin <- lf_a * Vulharv_bins * U
       harvest_total <- sum(harvest_by_bin)
@@ -386,14 +389,13 @@ simulate_population <- function(U, static, params) {
     }
     
     results <- data.frame(
-      YPR = YPR[Ymax, k],
-      SPR = SPRt[Ymax, k],
-      Prop = Prop[Ymax, k],
+      YPR = mean(YPR[(Ymax - 49):Ymax, k], na.rm = TRUE),
+      SPR = mean(SPRt[(Ymax - 49):Ymax, k], na.rm = TRUE),
+      Prop = mean(Prop[(Ymax - 49):Ymax, k], na.rm = TRUE),
       Recruit = sum(Cohort)
     )
-    
-    last_50_start <- max(start_year, Ymax - 49)
-    results$MeanLengthHarvested <- mean(mean_harvest_length[last_50_start:Ymax, k], na.rm = TRUE)
+
+    results$MeanLengthHarvested <- mean(mean_harvest_length[(Ymax - 49):Ymax, k], na.rm = TRUE)
     
     if (k == 1) {
       results_accum <- results
