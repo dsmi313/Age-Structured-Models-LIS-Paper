@@ -296,6 +296,7 @@ simulate_population <- function(U, static, params) {
   Prop <- matrix(0, nrow = Ymax, ncol = params$nsim)
   SSBt <- matrix(0, nrow = Ymax, ncol = params$nsim)
   mean_harvest_length <- matrix(NA_real_, nrow = Ymax, ncol = params$nsim)
+  all_harvest_lengths <- vector("list", params$nsim)
   N <- matrix(0, nrow = Ymax, ncol = L_bins)
   all_YPR <- all_SPR <- all_Prop <- all_SSB <- matrix(0, nrow = Ymax, ncol = params$nsim)
   all_Abundance <- matrix(0, nrow = L_bins, ncol = params$nsim)
@@ -310,7 +311,7 @@ simulate_population <- function(U, static, params) {
     }
     Cohort <- matrix(0, nrow = Amax, ncol = L_bins)
     Cohort[1, ] <- Ro * recruit_dist
-    
+
     N[1, ] <- colSums(Cohort)
     
     SSB_burnin <- rep(NA_real_, burn_in_span)
@@ -373,8 +374,9 @@ simulate_population <- function(U, static, params) {
       YPR[yr, k] <- 0
       Prop[yr, k] <- ifelse(sum(N[yr, ]) > 0, sum(trophyvul_bins * N[yr, ]) / sum(N[yr, ]), 0)
     }
-    
+
     start_year <- min(burn_in_span + 1, Ymax)
+    harvest_lengths_for_sim <- numeric(0)
     for(t in start_year:Ymax) {
       if (isTRUE(params$enable_ddr)) {
         if (t == start_year) {
@@ -399,18 +401,25 @@ simulate_population <- function(U, static, params) {
           Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
         }
       }
-      
+
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
+      harvest <- matrix(0, nrow = Amax, ncol = L_bins)
       for(a in Amax:2) {
         survivors <- Cohort[a - 1, ] * Survival_bins
+        harvest_row <- Cohort[a - 1, ] * Vulharv_bins * U
+        harvest[a - 1, ] <- harvest_row
         newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
       }
-      
+
       newCohort[1, ] <- Rcapacity[t] * recruit_dist
-      
+
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
-      
+
+      harvest_by_length <- colSums(harvest)
+      harvest_lengths_expanded <- rep(bin_midpoints, times = round(harvest_by_length))
+      harvest_lengths_for_sim <- c(harvest_lengths_for_sim, harvest_lengths_expanded)
+
       Yield_weight <- sum(Wt_bins * Vulharv_bins * N[t, ]) * U
       SSB_now <- sum(N[t, ] * Wt_bins * maturity_ogive_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
@@ -455,6 +464,8 @@ simulate_population <- function(U, static, params) {
       all_Abundance[, k] <- N[Ymax, ]
       all_AgeAbund[, k] <- rowSums(Cohort)
     }
+
+    all_harvest_lengths[[k]] <- harvest_lengths_for_sim
   }
   
   ts_data <- NULL
@@ -520,7 +531,8 @@ simulate_population <- function(U, static, params) {
   list(
     results = results_accum,
     time_series = ts_data,
-    pop_structure = pop_structure
+    pop_structure = pop_structure,
+    harvest_lengths = all_harvest_lengths
   )
 }
 
