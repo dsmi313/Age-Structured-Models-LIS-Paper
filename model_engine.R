@@ -150,6 +150,7 @@ make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
     
     # von Bertalanffy annual increment
     growth_increment <- (Linf - current_length) * (1 - exp(-K))
+    growth_increment <- max(0.1, growth_increment)
     expected_length <- current_length + growth_increment
     
     # === deterministic case when growth_cv == 0 (age cohort approach) ===
