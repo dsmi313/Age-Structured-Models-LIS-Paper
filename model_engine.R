@@ -67,17 +67,19 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
 }
 
 build_mortality <- function(input, length_bins) {
+  # Size-dependent natural mortality
   M_adult <- input$nat_mort
   mat_size_val <- input$mat_size
-  
+
   M_bins <- rep(M_adult, length_bins$L_bins)
-  
+
+  # Juveniles have higher mortality
   juvenile_threshold <- mat_size_val * 0.5
   M_bins[length_bins$bin_midpoints < juvenile_threshold] <- M_adult * 2.0
   M_bins[length_bins$bin_midpoints >= juvenile_threshold & length_bins$bin_midpoints < mat_size_val] <- M_adult * 1.5
-  
+
   S_bins <- exp(-M_bins)
-  
+
   list(
     M_bins = M_bins,
     S_bins = S_bins,
@@ -85,32 +87,18 @@ build_mortality <- function(input, length_bins) {
   )
 }
 
-build_fecundity <- function(input, growth_params) {
-  Amax <- input$amax
-  Age_vec <- 1:Amax
-  
-  Linf <- growth_params$Linf
-  vbk  <- growth_params$vbk
-  t0   <- growth_params$t0
-  
-  # Length-at-age
-  L_at_age <- Linf * (1 - exp(-vbk * (Age_vec - t0)))
-  L_at_age[L_at_age < 0] <- 0
-  
-  # Weight-at-age
-  wl_a <- input$wl_a
-  wl_b <- input$wl_b
-  W_at_age <- wl_a * (L_at_age ^ wl_b)
-  
-  # Simple weight-based fecundity:
-  # scale so a fish at maturity weight has relative fecundity ≈ 1
-  W_mat <- wl_a * (input$mat_size ^ wl_b)
-  fec_scale <- if (is.finite(W_mat) && W_mat > 0) 1 / W_mat else 1
-  
-  Fec_age <- fec_scale * W_at_age
-  Fec_age[!is.finite(Fec_age)] <- 0
-  
-  Fec_age
+build_fecundity <- function(input, Wt_bins, maturity_ogive_bins) {
+  # Species-specific fecundity exponent (matches length.R exactly)
+  # Default exponent for ALL species = 1.18 (Barneche et al. 2018)
+  fec_exp <- 1.18
+
+  # Crappie (white or black) use species-specific exponent = 1.27
+  if (input$species %in% c("white_crappie", "black_crappie")) {
+    fec_exp <- 1.27
+  }
+
+  # Apply exponent to weight and multiply by maturity ogive
+  (Wt_bins ^ fec_exp) * maturity_ogive_bins
 }
 
 
@@ -221,8 +209,8 @@ build_static_components <- function(input, growth_params = get_growth_params(inp
   Wt_bins <- (alfa * length_bins$bin_midpoints^bet) / 1000
   Wmat <- (alfa * input$mat_size^bet) / 1000
   maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
-  
-  Fec_bins <- build_fecundity(input, growth_params)
+
+  Fec_bins <- build_fecundity(input, Wt_bins, maturity_ogive_bins)
   
   Growth_matrix <- build_growth_matrix(
     input = input,
@@ -305,7 +293,7 @@ simulate_population <- function(U, static, params) {
     N[1, ] <- colSums(Cohort)
     
     SSB_burnin <- rep(NA_real_, burn_in_span)
-    SSB_burnin[1] <- sum(N[1, ] * Wt_bins * maturity_ogive_bins)
+    SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
     
     if (isTRUE(params$enable_ddr)) {
       alpha_beta <- NULL
@@ -338,7 +326,7 @@ simulate_population <- function(U, static, params) {
       
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
-      SSB_burnin[t] <- sum(N[t, ] * Wt_bins * maturity_ogive_bins)
+      SSB_burnin[t] <- sum(N[t, ] * Fec_bins)
     }
     
     burn_in_window_start <- max(1, burn_in_span - 10 + 1)
@@ -358,7 +346,7 @@ simulate_population <- function(U, static, params) {
     
     for(yr in 1:burn_in_span) {
       Yield <- 0
-      SSB_now <- sum(N[yr, ] * Wt_bins * maturity_ogive_bins)
+      SSB_now <- sum(N[yr, ] * Fec_bins)
       SSBt[yr, k] <- SSB_now
       SPRt[yr, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       YPR[yr, k] <- 0
@@ -371,7 +359,7 @@ simulate_population <- function(U, static, params) {
         if (t == start_year) {
           Rcapacity[t] <- Rcapacity[t - 1]
         } else {
-          SSB_prev <- sum(N[t - 1, ] * Wt_bins * maturity_ogive_bins)
+          SSB_prev <- sum(N[t - 1, ] * Fec_bins)
           if (!is.finite(SSB_prev) || SSB_prev < 0) SSB_prev <- 0
           
           if (is.na(SSB0) || !is.finite(SSB0) || SSB0 <= 0) SSB0 <- 1
@@ -403,7 +391,7 @@ simulate_population <- function(U, static, params) {
       N[t, ] <- colSums(Cohort)
       
       Yield_weight <- sum(Wt_bins * Vulharv_bins * N[t, ]) * U
-      SSB_now <- sum(N[t, ] * Wt_bins * maturity_ogive_bins)
+      SSB_now <- sum(N[t, ] * Fec_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
       YPR[t, k] <- Yield_weight / Ro
