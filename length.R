@@ -1181,8 +1181,10 @@ server <- function(input, output, session) {
     req(harvest_length_data())
 
     lengths <- unlist(harvest_length_data())
-    if (length(lengths) == 0) {
-      return(NULL)
+
+    # FIX: prevent Shiny crash when harvest data is empty
+    if (is.null(lengths) || length(lengths) < 2) {
+      return(NULL)  # not enough data to draw a violin
     }
 
     df <- data.frame(Length = lengths)
