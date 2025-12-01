@@ -699,20 +699,25 @@ server <- function(input, output, session) {
       # Get exploitation rate
       U <- input$exploitation
       
-      # Natural mortality (annual survival rate)
-      S_annual <- exp(-Nat_mort)
-      
+      # Natural mortality (length-specific survival rate)
+      juvenile_threshold <- input$mat_size * 0.5
+      M_bins <- rep(Nat_mort, L_bins)
+      M_bins[bin_midpoints < juvenile_threshold] <- Nat_mort * 2.0
+      M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < input$mat_size] <- Nat_mort * 1.5
+      M_bins[bin_midpoints >= input$mat_size] <- Nat_mort
+      S_bins <- exp(-M_bins)
+
       # UNFISHED survival by length bin (natural mortality only, NO fishing)
       # This is used for building unfished equilibrium and SPR denominator
-      Unfished_survival_bins <- rep(S_annual, L_bins)
-      
+      Unfished_survival_bins <- S_bins
+
       # FISHED survival by length bin (includes fishing mortality)
       # Fishing mortality by length bin
       F_bins <- Vulharv_bins * U
       # Release mortality from discarded fish
       Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
       # Total annual survival by length bin WITH FISHING
-      Survival_bins <- S_annual * (1 - F_bins) * (1 - Release_mort_bins)
+      Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
       
       # ========================================================================
       # GROWTH TRANSITION MATRIX
@@ -1633,9 +1638,15 @@ server <- function(input, output, session) {
       # Trophy vulnerability by length
       trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
       
-      # Natural mortality
-      S_annual <- exp(-Nat_mort)
-      Unfished_survival_bins <- rep(S_annual, L_bins)
+      # Natural mortality (length-specific)
+      juvenile_threshold <- input$mat_size * 0.5
+      M_bins <- rep(Nat_mort, L_bins)
+      M_bins[bin_midpoints < juvenile_threshold] <- Nat_mort * 2.0
+      M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < input$mat_size] <- Nat_mort * 1.5
+      M_bins[bin_midpoints >= input$mat_size] <- Nat_mort
+      S_bins <- exp(-M_bins)
+
+      Unfished_survival_bins <- S_bins
       
       # Convert CV to lognormal sigma
       sigmaR <- sqrt(log(input$rec_cv^2 + 1))
@@ -1745,7 +1756,7 @@ server <- function(input, output, session) {
         # Fishing mortality and survival by length bin (for this U)
         F_bins <- Vulharv_bins * U_test
         Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U_test * DisMort
-        Survival_bins <- S_annual * (1 - F_bins) * (1 - Release_mort_bins)
+        Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
         
         # Harvest weight by length bin
         Wt_harvest_bins <- Wt_bins * Vulharv_bins
