@@ -325,9 +325,10 @@ server <- function(input, output, session) {
       updateNumericInput(session, "t0", value = 0.197)  # LIS paper
       updateNumericInput(session, "nat_mort", value = 0.374)  # M = K (default)
       updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
-      updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age    
+      updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
       updateNumericInput(session, "ymax", value = 8 + 20 + 100)
-      
+      updateNumericInput(session, "capsize", value = 204)
+
       showNotification("Loaded White Crappie parameters (Smith et al. 2025)", type = "message")
       
     } else if (input$species == "black_crappie") {
@@ -342,7 +343,8 @@ server <- function(input, output, session) {
       updateNumericInput(session, "rec_cv", value = 0.8)  # High recruitment variability
       updateNumericInput(session, "amax", value = 8)  # Typical crappie maximum age
       updateNumericInput(session, "ymax", value = 8 + 20 + 100)
-      
+      updateNumericInput(session, "capsize", value = 204)
+
       showNotification("Loaded Black Crappie parameters (FishBase median)", type = "message")
       
     } else if (input$species == "walleye") {
@@ -359,6 +361,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "rec_cv", value = 1.1)  # Very high recruitment variability (literature: CV=112%)
       updateNumericInput(session, "amax", value = 15)  # Walleye can live 15-20 years
       updateNumericInput(session, "ymax", value = 15 + 20 + 100)
+      updateNumericInput(session, "capsize", value = 330)
       showNotification("Loaded Walleye parameters (FishBase median)", type = "message")
       
     } else if (input$species == "lmb") {
@@ -375,6 +378,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: CV>0.5)
       updateNumericInput(session, "amax", value = 12)  # Largemouth bass maximum age
       updateNumericInput(session, "ymax", value = 12 + 20 + 100)
+      updateNumericInput(session, "capsize", value = 280)
       showNotification("Loaded Largemouth Bass parameters (FishBase median)", type = "message")
       
     } else if (input$species == "smb") {
@@ -391,6 +395,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "rec_cv", value = 0.7)  # Moderate-high recruitment variability (literature: CV=52-80%)
       updateNumericInput(session, "amax", value = 12)  # Smallmouth bass maximum age
       updateNumericInput(session, "ymax", value = 12 + 20 + 100)
+      updateNumericInput(session, "capsize", value = 280)
       showNotification("Loaded Smallmouth Bass parameters (FishBase median)", type = "message")
       
     } else if (input$species == "channel_catfish") {
@@ -407,8 +412,9 @@ server <- function(input, output, session) {
       updateNumericInput(session, "rec_cv", value = 0.4)  # Moderate recruitment variability
       updateNumericInput(session, "amax", value = 24)  # Channel catfish can live 20-24 years
       updateNumericInput(session, "ymax", value = 24 + 20 + 100)
+      updateNumericInput(session, "capsize", value = 300)
       showNotification("Loaded Channel Catfish parameters (FishBase median)", type = "message")
-      
+
     } else if (input$species == "blue_catfish") {
       # Blue catfish parameters (FishBase median / Gabelhouse 1984)
       updateNumericInput(session, "wl_a", value = 7.74e-7)  # FishBase median
@@ -423,6 +429,7 @@ server <- function(input, output, session) {
       updateNumericInput(session, "rec_cv", value = 0.5)  # Moderate-high recruitment variability (literature: σR=0.49, Hilling et al. 2025)
       updateNumericInput(session, "amax", value = 30)  # Blue catfish can live 25-30 years
       updateNumericInput(session, "ymax", value = 30 + 20 + 100)
+      updateNumericInput(session, "capsize", value = 300)
       showNotification("Loaded Blue Catfish parameters (FishBase median)", type = "message")
     }
     # If custom, don't update anything
