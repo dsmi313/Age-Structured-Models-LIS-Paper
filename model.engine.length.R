@@ -244,8 +244,9 @@ simulate_population <- function(U, static, params) {
   Unfished_survival_bins <- static$Unfished_survival_bins
   Growth_matrix <- static$Growth_matrix
   recruit_dist <- static$recruit_dist
-  
-  F_inst <- -log(1 - U)
+
+  # Use binomial exploitation (NOT instantaneous F)
+  # F_bins will be calculated with survival
   
   YPR <- matrix(0, nrow = Ymax, ncol = params$nsim)
   SPRt <- matrix(0, nrow = Ymax, ncol = params$nsim)
@@ -342,27 +343,25 @@ simulate_population <- function(U, static, params) {
         }
       }
       
-      # Length-based fishing mortality and total mortality
-      F_len <- F_inst * Vulharv_bins
-      Z_bins <- M_bins + F_len
-      S_bins_total <- exp(-Z_bins)
-      catch_fraction_bins <- (F_len / Z_bins) * (1 - S_bins_total)
-      catch_fraction_bins[!is.finite(catch_fraction_bins)] <- 0
-      
+      # Binomial exploitation (matches original length.R)
+      S_annual <- exp(-M_bins)
+      F_bins <- Vulharv_bins * U
+      Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
+      Survival_bins <- S_annual * (1 - F_bins) * (1 - Release_mort_bins)
+
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
-      annual_harvest_bins <- numeric(L_bins)
       for(a in Amax:2) {
-        survivors <- Cohort[a - 1, ] * S_bins_total
+        survivors <- Cohort[a - 1, ] * Survival_bins
         newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
-        annual_harvest_bins <- annual_harvest_bins + Cohort[a - 1, ] * catch_fraction_bins
       }
       
       newCohort[1, ] <- Rcapacity[t] * recruit_dist
-      
+
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
-      
-      Yield_weight <- sum(Wt_bins * annual_harvest_bins)
+
+      # Binomial yield calculation (matches original length.R)
+      Yield_weight <- sum(Wt_bins * Vulharv_bins * N[t, ]) * U
       SSB_now <- compute_ssb(N[t, ], Fec_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
@@ -370,8 +369,9 @@ simulate_population <- function(U, static, params) {
       SSBt[t, k] <- SSB_now
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- Trophy_prop
-      
-      harvest_by_bin <- annual_harvest_bins
+
+      # Mean harvest length (binomial, matches original length.R)
+      harvest_by_bin <- N[t, ] * Vulharv_bins * U
       harvest_total <- sum(harvest_by_bin)
       mean_harvest_length[t, k] <- if (harvest_total > 0) {
         sum(harvest_by_bin * bin_midpoints) / harvest_total
