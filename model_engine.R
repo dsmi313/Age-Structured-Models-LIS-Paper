@@ -28,6 +28,20 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
   Capsize <- input$capsize
   Memorable_size <- input$memorable_size
 
+  if (is.null(Capsize) && !is.null(input$species)) {
+    Capsize <- switch(
+      input$species,
+      "white_crappie" = 204,
+      "black_crappie" = 204,
+      "walleye" = 330,
+      "lmb" = 280,
+      "smb" = 280,
+      "channel_catfish" = 300,
+      "blue_catfish" = 300,
+      Capsize
+    )
+  }
+
   CapsizeSD <- Capsize * 0.01
   HarvlimSD <- Harvlim * 0.01
 
