@@ -33,11 +33,11 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
       input$species,
       "white_crappie" = 204,
       "black_crappie" = 204,
-      "walleye" = 204,
-      "lmb" = 204,
-      "smb" = 204,
-      "channel_catfish" = 204,
-      "blue_catfish" = 204,
+      "walleye" = 330,
+      "lmb" = 280,
+      "smb" = 280,
+      "channel_catfish" = 300,
+      "blue_catfish" = 300,
       Capsize
     )
   }
