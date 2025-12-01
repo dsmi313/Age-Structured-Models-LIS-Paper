@@ -156,8 +156,7 @@ ui <- fluidPage(
                  br(),
                  plotlyOutput("ypr_plot", height = "300px"),
                  plotlyOutput("spr_plot", height = "300px"),
-                 plotlyOutput("prop_plot", height = "300px"),
-                 plotOutput("harvest_violin")
+                 plotlyOutput("prop_plot", height = "300px")
         ),
         
         tabPanel("Time Series",
@@ -307,7 +306,6 @@ server <- function(input, output, session) {
   saved_scenarios <- reactiveVal(data.frame())
   detailed_results <- reactiveVal(data.frame())
   yield_curve_data <- reactiveVal(NULL)
-  harvest_length_data <- reactiveVal(NULL)
   
   # Species parameter presets
   observeEvent(input$species, {
@@ -798,7 +796,6 @@ server <- function(input, output, session) {
       all_SSB <- matrix(NA, Ymax, nsim)  # Store SSB time series
       all_Abundance <- matrix(NA, L_bins, nsim)  # Store population length structure from all sims
       all_AgeAbundance <- matrix(NA, Amax, nsim) # Store population age structure from all sims
-      harvest_lengths_list <- vector("list", nsim)
       
       # Calculate mean recruitment length (age-1) and its distribution
       age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
@@ -835,8 +832,6 @@ server <- function(input, output, session) {
         YPR <- rep(NA, Ymax)
         Prop <- rep(NA, Ymax)
         SSBt <- rep(NA, Ymax)  # Spawning stock biomass time series
-        harvest_lengths_for_sim <- numeric(0)
-        
         # Set initial population structure (UNFISHED equilibrium in length bins)
         # Start with recruitment distributed across length bins
         age_len[1, ] <- Ro * recruit_dist
@@ -928,9 +923,6 @@ server <- function(input, output, session) {
           harvest <- after_M * matrix(Vulharv_bins * U, nrow = Amax, ncol = L_bins, byrow = TRUE)
           disc_catch <- after_M * matrix((Vulcap_bins - Vulharv_bins) * U, nrow = Amax, ncol = L_bins, byrow = TRUE)
           discard_death <- disc_catch * DisMort
-          harvest_by_length <- colSums(harvest)
-          harvest_lengths_expanded <- rep(bin_midpoints, times = round(harvest_by_length))
-          harvest_lengths_for_sim <- c(harvest_lengths_for_sim, harvest_lengths_expanded)
           N_survive <- after_M - harvest - discard_death
 
           # Apply growth (transition to new length bins) and age the cohorts
@@ -994,7 +986,6 @@ server <- function(input, output, session) {
         # Store final year abundance from this simulation
         all_Abundance[, k] <- N[Ymax, ]
         all_AgeAbundance[, k] <- rowSums(age_len)
-        harvest_lengths_list[[k]] <- harvest_lengths_for_sim
       }
       
       # Calculate mean and SD across all simulations at each year
@@ -1057,7 +1048,6 @@ server <- function(input, output, session) {
       pop_structure_data(list(length_data = length_data, age_data = age_data))
 
       sim_results(results)
-      harvest_length_data(harvest_lengths_list)
     })
   })
   
@@ -1177,26 +1167,6 @@ server <- function(input, output, session) {
     ggplotly(p)
   })
 
-  output$harvest_violin <- renderPlot({
-    req(harvest_length_data())
-
-    lengths <- unlist(harvest_length_data())
-
-    # FIX: prevent Shiny crash when harvest data is empty
-    if (is.null(lengths) || length(lengths) < 2) {
-      return(NULL)  # not enough data to draw a violin
-    }
-
-    df <- data.frame(Length = lengths)
-
-    ggplot(df, aes(y = Length, x = "")) +
-      geom_violin(fill = "steelblue", alpha = 0.7) +
-      geom_boxplot(width = 0.1, outlier.size = 0.5, alpha = 0.8) +
-      ylab("Harvested Fish Length (mm)") +
-      xlab("") +
-      theme_minimal()
-  })
-  
   # Time series plot
   output$timeseries_plot <- renderPlotly({
     req(time_series_data())
