@@ -39,9 +39,12 @@ ui <- fluidPage(
       numericInput("nat_mort", "Natural Mortality (M):", value = 0.35, min = 0.05, max = 1.0, step = 0.01),
       helpText(tags$small(tags$em("Annual natural mortality rate"))),
       
-      numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.1, max = 1.5, step = 0.05),
-      helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (higher = more variable)"))),
-      
+      numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.0, max = 1.5, step = 0.05),
+      helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (0 = deterministic, higher = more variable)"))),
+
+      numericInput("R0", "Unfished Recruitment (R0):", value = 10000, min = 100, max = 1000000, step = 1000),
+      helpText(tags$small(tags$em("Average recruitment in unfished equilibrium (number of age-1 fish)"))),
+
       # Density-Dependent Recruitment (Experimental)
       h4("Recruitment Dynamics (Experimental)", style = "color: orange;"),
       checkboxInput("enable_ddr", "Enable Density-Dependent Recruitment (Beverton-Holt)", value = FALSE),
@@ -620,7 +623,7 @@ server <- function(input, output, session) {
       Nat_mort <- input$nat_mort
       
       # Stock-recruit
-      Ro <- 10000
+      Ro <- input$R0
       
       # Vulnerabilities
       Capsize <- input$capsize
@@ -896,8 +899,14 @@ server <- function(input, output, session) {
           # Will be calculated dynamically inside loop based on SSB
           Rcapacity <- rep(NA, Ymax)
         } else {
-          # Traditional per-recruit: constant mean recruitment with noise
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+          # Traditional per-recruit: constant mean recruitment
+          if(input$rec_cv == 0) {
+            # Deterministic recruitment when CV = 0
+            Rcapacity <- rep(Ro, Ymax)
+          } else {
+            # Stochastic recruitment with lognormal noise
+            Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+          }
         }
         
         # Get steepness if DDR is enabled
@@ -936,8 +945,12 @@ server <- function(input, output, session) {
               R_BH <- R_BH * depensation_factor
             }
             
-            # Add stochastic noise
-            Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+            # Add stochastic noise (or deterministic if rec_cv = 0)
+            if(input$rec_cv == 0) {
+              Rcapacity[i] <- max(1, R_BH)
+            } else {
+              Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+            }
           }
           
           # Apply survival to previous year's population by age
@@ -1579,7 +1592,7 @@ server <- function(input, output, session) {
       Nat_mort <- input$nat_mort
       
       # Stock-recruit
-      Ro <- 10000
+      Ro <- input$R0
       
       # Vulnerabilities (use current settings)
       Capsize <- input$capsize
@@ -1831,8 +1844,14 @@ server <- function(input, output, session) {
             # Will be calculated dynamically inside loop based on SSB
             Rcapacity <- rep(NA, Ymax_yield)
           } else {
-            # Traditional per-recruit: constant mean recruitment with noise
-            Rcapacity <- Ro * rlnorm(Ymax_yield, 0, sd = sigmaR)
+            # Traditional per-recruit: constant mean recruitment
+            if(input$rec_cv == 0) {
+              # Deterministic recruitment when CV = 0
+              Rcapacity <- rep(Ro, Ymax_yield)
+            } else {
+              # Stochastic recruitment with lognormal noise
+              Rcapacity <- Ro * rlnorm(Ymax_yield, 0, sd = sigmaR)
+            }
           }
           
           # Get steepness if DDR is enabled
@@ -1868,8 +1887,12 @@ server <- function(input, output, session) {
                 R_BH <- R_BH * depensation_factor
               }
               
-              # Add stochastic noise
-              Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+              # Add stochastic noise (or deterministic if rec_cv = 0)
+              if(input$rec_cv == 0) {
+                Rcapacity[i] <- max(1, R_BH)
+              } else {
+                Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+              }
             }
             
             # Apply FISHED survival (includes fishing mortality)

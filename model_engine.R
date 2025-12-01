@@ -330,8 +330,13 @@ simulate_population <- function(U, static, params) {
           R <- R * (SSB_burnin[t - 1] / depensation_threshold)^2
         }
       }
-      
-      R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
+
+      # Add stochastic noise (or deterministic if rec_cv = 0)
+      if (params$rec_cv == 0) {
+        R <- max(0, R)
+      } else {
+        R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
+      }
       newCohort[1, ] <- R * recruit_dist
       
       Cohort <- newCohort
@@ -351,7 +356,14 @@ simulate_population <- function(U, static, params) {
       Rcapacity <- rep(NA_real_, Ymax)
       Rcapacity[1:burn_in_span] <- Ro
     } else {
-      Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+      # Traditional per-recruit: constant mean recruitment
+      if (params$rec_cv == 0) {
+        # Deterministic recruitment when CV = 0
+        Rcapacity <- rep(Ro, Ymax)
+      } else {
+        # Stochastic recruitment with lognormal noise
+        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+      }
     }
     
     for(yr in 1:burn_in_span) {
@@ -384,8 +396,13 @@ simulate_population <- function(U, static, params) {
           }
           
           if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
-          
-          Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+
+          # Add stochastic noise (or deterministic if rec_cv = 0)
+          if (params$rec_cv == 0) {
+            Rcapacity[t] <- max(1, R_BH)
+          } else {
+            Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+          }
         }
       }
       
@@ -597,7 +614,7 @@ run_population_simulation <- function(
     enable_ddr        = input$enable_ddr,
     enable_depensation = input$enable_depensation,
     steepness         = input$steepness,
-    Ro                = 10000,
+    Ro                = input$R0,
     Harvlim           = input$harvlim,
     store_details     = store_details,
     progress          = progress_cb
@@ -626,7 +643,7 @@ run_yield_curve_simulation <- function(
     enable_ddr        = input$enable_ddr,
     enable_depensation = input$enable_depensation,
     steepness         = input$steepness,
-    Ro                = 10000,
+    Ro                = input$R0,
     Harvlim           = input$harvlim,
     store_details     = FALSE,
     U_values          = U_values,
