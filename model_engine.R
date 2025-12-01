@@ -67,11 +67,13 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
 }
 
 build_mortality <- function(input, length_bins) {
+  # Size-dependent natural mortality
   M_adult <- input$nat_mort
   mat_size_val <- input$mat_size
   
   M_bins <- rep(M_adult, length_bins$L_bins)
   
+  # Juveniles have higher mortality
   juvenile_threshold <- mat_size_val * 0.5
   M_bins[length_bins$bin_midpoints < juvenile_threshold] <- M_adult * 2.0
   M_bins[length_bins$bin_midpoints >= juvenile_threshold & length_bins$bin_midpoints < mat_size_val] <- M_adult * 1.5
@@ -85,41 +87,37 @@ build_mortality <- function(input, length_bins) {
   )
 }
 
-build_fecundity <- function(input, growth_params) {
-  Amax <- input$amax
-  Age_vec <- 1:Amax
+build_fecundity <- function(input, Wt_bins, maturity_ogive_bins) {
+  # Species-specific fecundity exponent (matches length.R exactly)
+  # Default exponent for ALL species = 1.18 (Barneche et al. 2018)
+  fec_exp <- 1.18
   
-  Linf <- growth_params$Linf
-  vbk  <- growth_params$vbk
-  t0   <- growth_params$t0
+  # Crappie (white or black) use species-specific exponent = 1.27
+  if (input$species %in% c("white_crappie", "black_crappie")) {
+    fec_exp <- 1.27
+  }
   
-  # Length-at-age
-  L_at_age <- Linf * (1 - exp(-vbk * (Age_vec - t0)))
-  L_at_age[L_at_age < 0] <- 0
-  
-  # Weight-at-age
-  wl_a <- input$wl_a
-  wl_b <- input$wl_b
-  W_at_age <- wl_a * (L_at_age ^ wl_b)
-  
-  # Simple weight-based fecundity:
-  # scale so a fish at maturity weight has relative fecundity ≈ 1
-  W_mat <- wl_a * (input$mat_size ^ wl_b)
-  fec_scale <- if (is.finite(W_mat) && W_mat > 0) 1 / W_mat else 1
-  
-  Fec_age <- fec_scale * W_at_age
-  Fec_age[!is.finite(Fec_age)] <- 0
-  
-  Fec_age
+  # Apply exponent to weight and multiply by maturity ogive
+  (Wt_bins ^ fec_exp) * maturity_ogive_bins
 }
 
 
 build_recruit_distribution <- function(input, length_bins, growth_params = get_growth_params(input), growth_cv_effective) {
   age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-  age1_sd_length <- max(0.5, age1_mean_length * growth_cv_effective)
   
   L_bins <- length(length_bins$length_bins) - 1
   recruit_dist <- rep(0, L_bins)
+  
+  # === deterministic case when growth_cv == 0 (age cohort approach) ===
+  if (input$growth_cv == 0) {
+    closest_bin <- which.min(abs(length_bins$bin_midpoints - age1_mean_length))
+    recruit_dist[closest_bin] <- 1.0
+    return(recruit_dist)
+  }
+  
+  # === stochastic case (normal distribution) ===
+  age1_sd_length <- max(0.5, age1_mean_length * growth_cv_effective)
+  
   for(j in 1:L_bins) {
     bin_lower <- length_bins$length_bins[j]
     bin_upper <- length_bins$length_bins[j + 1]
@@ -153,7 +151,7 @@ make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
     
     expected_length <- current_length + growth_increment
     
-    # === deterministic case when growth_cv == 0 ===
+    # === deterministic case when growth_cv == 0 (age cohort approach) ===
     if (growth_cv_input == 0) {
       next_bin <- which.min(abs(bin_midpoints - expected_length))
       
@@ -222,7 +220,7 @@ build_static_components <- function(input, growth_params = get_growth_params(inp
   Wmat <- (alfa * input$mat_size^bet) / 1000
   maturity_ogive_bins <- 1 / (1 + exp(-(Wt_bins - Wmat) / (Wmat * 0.1)))
   
-  Fec_bins <- build_fecundity(input, growth_params)
+  Fec_bins <- build_fecundity(input, Wt_bins, maturity_ogive_bins)
   
   Growth_matrix <- build_growth_matrix(
     input = input,
@@ -305,7 +303,7 @@ simulate_population <- function(U, static, params) {
     N[1, ] <- colSums(Cohort)
     
     SSB_burnin <- rep(NA_real_, burn_in_span)
-    SSB_burnin[1] <- sum(N[1, ] * Wt_bins * maturity_ogive_bins)
+    SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
     
     if (isTRUE(params$enable_ddr)) {
       alpha_beta <- NULL
@@ -333,12 +331,17 @@ simulate_population <- function(U, static, params) {
         }
       }
       
-      R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
+      # Add stochastic noise (or deterministic if rec_cv = 0)
+      if (params$rec_cv == 0) {
+        R <- max(0, R)
+      } else {
+        R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
+      }
       newCohort[1, ] <- R * recruit_dist
       
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
-      SSB_burnin[t] <- sum(N[t, ] * Wt_bins * maturity_ogive_bins)
+      SSB_burnin[t] <- sum(N[t, ] * Fec_bins)
     }
     
     burn_in_window_start <- max(1, burn_in_span - 10 + 1)
@@ -353,12 +356,19 @@ simulate_population <- function(U, static, params) {
       Rcapacity <- rep(NA_real_, Ymax)
       Rcapacity[1:burn_in_span] <- Ro
     } else {
-      Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+      # Traditional per-recruit: constant mean recruitment
+      if (params$rec_cv == 0) {
+        # Deterministic recruitment when CV = 0
+        Rcapacity <- rep(Ro, Ymax)
+      } else {
+        # Stochastic recruitment with lognormal noise
+        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+      }
     }
     
     for(yr in 1:burn_in_span) {
       Yield <- 0
-      SSB_now <- sum(N[yr, ] * Wt_bins * maturity_ogive_bins)
+      SSB_now <- sum(N[yr, ] * Fec_bins)
       SSBt[yr, k] <- SSB_now
       SPRt[yr, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       YPR[yr, k] <- 0
@@ -371,7 +381,7 @@ simulate_population <- function(U, static, params) {
         if (t == start_year) {
           Rcapacity[t] <- Rcapacity[t - 1]
         } else {
-          SSB_prev <- sum(N[t - 1, ] * Wt_bins * maturity_ogive_bins)
+          SSB_prev <- sum(N[t - 1, ] * Fec_bins)
           if (!is.finite(SSB_prev) || SSB_prev < 0) SSB_prev <- 0
           
           if (is.na(SSB0) || !is.finite(SSB0) || SSB0 <= 0) SSB0 <- 1
@@ -387,7 +397,12 @@ simulate_population <- function(U, static, params) {
           
           if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
           
-          Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+          # Add stochastic noise (or deterministic if rec_cv = 0)
+          if (params$rec_cv == 0) {
+            Rcapacity[t] <- max(1, R_BH)
+          } else {
+            Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+          }
         }
       }
       
@@ -403,7 +418,7 @@ simulate_population <- function(U, static, params) {
       N[t, ] <- colSums(Cohort)
       
       Yield_weight <- sum(Wt_bins * Vulharv_bins * N[t, ]) * U
-      SSB_now <- sum(N[t, ] * Wt_bins * maturity_ogive_bins)
+      SSB_now <- sum(N[t, ] * Fec_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
       YPR[t, k] <- Yield_weight / Ro
@@ -599,7 +614,7 @@ run_population_simulation <- function(
     enable_ddr        = input$enable_ddr,
     enable_depensation = input$enable_depensation,
     steepness         = input$steepness,
-    Ro                = 10000,
+    Ro                = input$R0,
     Harvlim           = input$harvlim,
     store_details     = store_details,
     progress          = progress_cb
@@ -628,7 +643,7 @@ run_yield_curve_simulation <- function(
     enable_ddr        = input$enable_ddr,
     enable_depensation = input$enable_depensation,
     steepness         = input$steepness,
-    Ro                = 10000,
+    Ro                = input$R0,
     Harvlim           = input$harvlim,
     store_details     = FALSE,
     U_values          = U_values,
