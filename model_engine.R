@@ -28,13 +28,40 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
   Capsize <- input$capsize
   Memorable_size <- input$memorable_size
 
-  Vharv_bins <- 1 / (1 + exp((Harvlim - bin_midpoints) / (Harvlim * 0.05)))
-  Vulcap_bins <- 1 / (1 + exp((Capsize - bin_midpoints) / (Capsize * 0.05)))
-  trophyvul_bins <- 1 / (1 + exp((Memorable_size - bin_midpoints) / (Memorable_size * 0.05)))
+  CapsizeSD <- Capsize * 0.05
+  HarvlimSD <- Harvlim * 0.05
+
+  Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
+
+  if (isTRUE(input$enable_slot)) {
+    Slot_upper <- input$slot_upper
+    Slot_upperSD <- Slot_upper * 0.01
+    HarvlimSD_slot <- Harvlim * 0.01
+    Effective_min <- max(Harvlim, Capsize)
+
+    Vulharv_above_min <- 1 / (1 + exp(-(bin_midpoints - Effective_min) / HarvlimSD_slot))
+    Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Slot_upper) / Slot_upperSD))
+
+    if (identical(input$slot_type, "protective")) {
+      Vulharv_bins <- Vulharv_above_min * (1 - Vulharv_below_max)
+    } else {
+      Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
+    }
+  } else if (isTRUE(input$enable_max_limit)) {
+    Max_harvest_size <- input$max_harvest_size
+    Max_harvestSD <- Max_harvest_size * 0.01
+    Vulharv_above_capture <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
+    Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Max_harvest_size) / Max_harvestSD))
+    Vulharv_bins <- Vulharv_above_capture * Vulharv_below_max
+  } else {
+    Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
+  }
+
+  trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - Memorable_size) / (Memorable_size * 0.1)))) * Vulcap_bins
 
   list(
     Vulcap_bins = Vulcap_bins,
-    Vulharv_bins = Vharv_bins,
+    Vulharv_bins = Vulharv_bins,
     trophyvul_bins = trophyvul_bins
   )
 }
@@ -119,8 +146,6 @@ make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
     
     # von Bertalanffy annual increment
     growth_increment <- (Linf - current_length) * (1 - exp(-K))
-    growth_increment <- max(0.1, growth_increment)
-    
     expected_length <- current_length + growth_increment
     
     # === deterministic case when growth_cv == 0 (age cohort approach) ===
@@ -169,12 +194,6 @@ build_growth_matrix <- function(input, length_bins, growth_params = get_growth_p
     bin_width = length_bins$bin_width,
     growth_cv_input = input$growth_cv
   )
-}
-
-bh_params <- function(h, Ro, SSB0) {
-  inv <- 1 / max(1, SSB0 * (1 - h))
-  list(alpha = 4 * h * Ro * inv,
-       beta  = (5 * h - 1) * inv)
 }
 
 build_static_components <- function(input, growth_params = get_growth_params(input)) {
@@ -227,7 +246,7 @@ simulate_population <- function(U, static, params) {
   burn_in_years <- params$burn_in_years
   Ymax <- params$Ymax
   DisMort <- params$DisMort
-  recruitment_sd <- sqrt(log(params$rec_cv^2 + 1))
+  sigmaR <- sqrt(log(params$rec_cv^2 + 1))
   Ro <- params$Ro
   Harvlim <- params$Harvlim
   store_details <- isTRUE(params$store_details)
@@ -281,7 +300,7 @@ simulate_population <- function(U, static, params) {
         newCohort[a + 1, ] <- grown
       }
 
-      newCohort[1, ] <- newCohort[1, ] + (Ro * rlnorm(1, 0, recruitment_sd)) * recruit_dist
+      newCohort[1, ] <- newCohort[1, ] + (Ro * rlnorm(1, 0, sigmaR)) * recruit_dist
 
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
@@ -297,7 +316,7 @@ simulate_population <- function(U, static, params) {
       if (params$rec_cv == 0) {
         Rcapacity <- rep(Ro, Ymax)
       } else {
-        Rcapacity <- Ro * rlnorm(Ymax, 0, recruitment_sd)
+        Rcapacity <- Ro * rlnorm(Ymax, 0, sigmaR)
       }
     }
 
@@ -326,7 +345,7 @@ simulate_population <- function(U, static, params) {
         if (params$rec_cv == 0) {
           Rcapacity[t] <- max(1, R_BH)
         } else {
-          Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, recruitment_sd))
+          Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sigmaR))
         }
       }
 
