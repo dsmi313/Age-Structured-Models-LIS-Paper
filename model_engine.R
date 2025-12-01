@@ -235,6 +235,7 @@ build_static_components <- function(input, growth_params = get_growth_params(inp
     Vulcap_bins = vulnerabilities$Vulcap_bins,
     Vulharv_bins = vulnerabilities$Vulharv_bins,
     trophyvul_bins = vulnerabilities$trophyvul_bins,
+    M_bins = mortality$M_bins,
     S_bins = mortality$S_bins,
     Unfished_survival_bins = mortality$Unfished_survival_bins,
     Growth_matrix = Growth_matrix,
@@ -261,10 +262,15 @@ simulate_population <- function(U, static, params) {
   Wt_bins <- static$Wt_bins
   maturity_ogive_bins <- static$maturity_ogive_bins
   Fec_bins <- static$Fec_bins
+  M_bins <- static$M_bins
   S_bins <- static$S_bins
   Unfished_survival_bins <- static$Unfished_survival_bins
   Growth_matrix <- static$Growth_matrix
   recruit_dist <- static$recruit_dist
+
+  stopifnot(all(abs(rowSums(Growth_matrix) - 1) < 1e-6))
+  stopifnot(all(M_bins <= exp(1)))
+  stopifnot(all(S_bins > 0 & S_bins <= 1))
 
   F_bins <- Vulharv_bins * U
   Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
@@ -280,23 +286,23 @@ simulate_population <- function(U, static, params) {
   all_Abundance <- matrix(0, nrow = L_bins, ncol = params$nsim)
   all_AgeAbund <- matrix(0, nrow = Amax, ncol = params$nsim)
   
-  burn_in_span <- min(burn_in_years, Ymax)
+  burn_in_span <- burn_in_years
 
   for(k in 1:params$nsim) {
     if (!is.null(params$progress)) {
       params$progress(1 / params$nsim,
                       detail = paste("Simulation", k, "of", params$nsim))
     }
-    Cohort <- matrix(0, nrow = Amax, ncol = L_bins)
-    Cohort[1, ] <- Ro * recruit_dist
+    age_len <- matrix(0, nrow = Amax, ncol = L_bins)
+    age_len[1, ] <- Ro * recruit_dist
 
-    N[1, ] <- colSums(Cohort)
+    N[1, ] <- colSums(age_len)
 
     SSB_burnin <- rep(NA_real_, burn_in_span)
     SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
 
     for(t in 2:burn_in_span) {
-      age_survive <- Cohort * matrix(Unfished_survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
+      age_survive <- age_len * matrix(Unfished_survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
 
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
       for(a in 1:(Amax - 1)) {
@@ -306,9 +312,12 @@ simulate_population <- function(U, static, params) {
 
       newCohort[1, ] <- newCohort[1, ] + (Ro * rlnorm(1, 0, sigmaR)) * recruit_dist
 
-      Cohort <- newCohort
-      N[t, ] <- colSums(Cohort)
+      age_len <- newCohort
+      N[t, ] <- colSums(age_len)
       SSB_burnin[t] <- sum(N[t, ] * Fec_bins)
+
+      stopifnot(all(N[t, ] >= 0))
+      stopifnot(all(age_len >= 0))
     }
 
     burnin_start <- max(1, burn_in_span - 9)
@@ -332,7 +341,7 @@ simulate_population <- function(U, static, params) {
       Prop[yr, k] <- ifelse(sum(N[yr, ]) > 0, sum(trophyvul_bins * N[yr, ]) / sum(N[yr, ]), 0)
     }
 
-    start_year <- min(burn_in_span + 1, Ymax)
+    start_year <- burn_in_span + 1
     for(t in start_year:Ymax) {
       if (isTRUE(params$enable_ddr)) {
         SSB_prev <- sum(N[t - 1, ] * Fec_bins)
@@ -355,7 +364,7 @@ simulate_population <- function(U, static, params) {
 
       R_now <- Rcapacity[t]
 
-      age_survive <- Cohort * matrix(S_fished, nrow = Amax, ncol = L_bins, byrow = TRUE)
+      age_survive <- age_len * matrix(S_fished, nrow = Amax, ncol = L_bins, byrow = TRUE)
 
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
       for(a in 1:(Amax - 1)) {
@@ -365,8 +374,11 @@ simulate_population <- function(U, static, params) {
 
       newCohort[1, ] <- newCohort[1, ] + R_now * recruit_dist
 
-      Cohort <- newCohort
-      N[t, ] <- colSums(Cohort)
+      age_len <- newCohort
+      N[t, ] <- colSums(age_len)
+
+      stopifnot(all(N[t, ] >= 0))
+      stopifnot(all(age_len >= 0))
 
       lf_a <- N[t, ]
       yield_t <- sum(F_bins * Wt_bins * lf_a)
@@ -392,10 +404,15 @@ simulate_population <- function(U, static, params) {
       YPR = mean(YPR[(Ymax - 49):Ymax, k], na.rm = TRUE),
       SPR = mean(SPRt[(Ymax - 49):Ymax, k], na.rm = TRUE),
       Prop = mean(Prop[(Ymax - 49):Ymax, k], na.rm = TRUE),
-      Recruit = sum(Cohort)
+      Recruit = sum(age_len)
     )
 
     results$MeanLengthHarvested <- mean(mean_harvest_length[(Ymax - 49):Ymax, k], na.rm = TRUE)
+
+    stopifnot(is.finite(results$YPR))
+    stopifnot(is.finite(results$SPR))
+    stopifnot(is.finite(results$Prop))
+    stopifnot(is.finite(results$MeanLengthHarvested))
     
     if (k == 1) {
       results_accum <- results
@@ -409,7 +426,7 @@ simulate_population <- function(U, static, params) {
       all_Prop[, k] <- Prop[, k]
       all_SSB[, k] <- SSBt[, k]
       all_Abundance[, k] <- N[Ymax, ]
-      all_AgeAbund[, k] <- rowSums(Cohort)
+      all_AgeAbund[, k] <- rowSums(age_len)
     }
   }
   
@@ -552,7 +569,7 @@ run_population_simulation <- function(
     progress_cb = NULL
 ) {
   burn_in_years <- input$amax + 20
-  Ymax_val <- input$ymax
+  Ymax_val <- input$amax + 20 + 100
   
   params <- list(
     Amax              = input$amax,
@@ -581,7 +598,7 @@ run_yield_curve_simulation <- function(
     progress_cb = NULL
 ) {
   burn_in_years <- input$amax + 20
-  Ymax_val <- input$ymax
+  Ymax_val <- input$amax + 20 + 100
   
   params <- list(
     Amax              = input$amax,
