@@ -643,7 +643,7 @@ server <- function(input, output, session) {
       
       # Get growth CV
       growth_cv <- input$growth_cv
-      if(growth_cv == 0) growth_cv <- 0.001  # Avoid division by zero
+      deterministic_mode <- (input$growth_cv == 0)
       
       # Pre-compute length-specific variables for each bin
       # Weight at length
@@ -723,50 +723,59 @@ server <- function(input, output, session) {
       
       for(i in 1:L_bins) {
         current_length <- bin_midpoints[i]
-        
+
         K <- growth_params$vbk
         Linf <- growth_params$Linf
-        
-        # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
-        # Proper VB increment: ΔL = (L∞ - L_t) * (1 - exp(-K))
-        # This gives: L_{t+1} = L∞ * (1 - exp(-K)) + L_t * exp(-K)
-        growth_increment <- (Linf - current_length) * (1 - exp(-K))
-        
-        # Ensure positive growth, even for fish at/above Linf
-        growth_increment <- max(0.1, growth_increment)
-        
-        # Add variability: SD = growth_increment * CV
-        # Set minimum SD to avoid pnorm() issues and ensure proper scaling with bin width
-        # Ensures variability scales appropriately for both small (crappie) and large (catfish) species
-        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-        
-        # For fish at or above Linf, minimal growth with small SD
-        if(current_length >= Linf * 0.99) {
-          growth_increment <- 0.1
-          growth_sd <- max(1, bin_width * 0.15)
-        }
-        
-        # Distribute probability across bins
-        for(j in 1:L_bins) {
-          bin_lower <- length_bins[j]
-          bin_upper <- length_bins[j+1]
-          
-          # Expected length next year
-          expected_length <- current_length + growth_increment
-          
-          # Probability of being in bin j next year
-          prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
-          
-          Growth_matrix[i, j] <- prob
-        }
-        
-        # Normalize row to sum to 1 (handle edge effects)
-        row_sum <- sum(Growth_matrix[i, ])
-        if(row_sum > 0) {
-          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
+
+        # Deterministic next-year VB length and closest bin
+        next_length <- Linf * (1 - exp(-K)) + current_length * exp(-K)
+        deterministic_bin <- which.min(abs(bin_midpoints - next_length))
+
+        if(deterministic_mode) {
+          Growth_matrix[i, ] <- 0
+          Growth_matrix[i, deterministic_bin] <- 1
         } else {
-          # If no growth possible (at max bin), stay in current bin
-          Growth_matrix[i, i] <- 1.0
+          # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
+          # Proper VB increment: ΔL = (L∞ - L_t) * (1 - exp(-K))
+          # This gives: L_{t+1} = L∞ * (1 - exp(-K)) + L_t * exp(-K)
+          growth_increment <- (Linf - current_length) * (1 - exp(-K))
+
+          # Ensure positive growth, even for fish at/above Linf
+          growth_increment <- max(0.1, growth_increment)
+
+          # Add variability: SD = growth_increment * CV
+          # Set minimum SD to avoid pnorm() issues and ensure proper scaling with bin width
+          # Ensures variability scales appropriately for both small (crappie) and large (catfish) species
+          growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
+
+          # For fish at or above Linf, minimal growth with small SD
+          if(current_length >= Linf * 0.99) {
+            growth_increment <- 0.1
+            growth_sd <- max(1, bin_width * 0.15)
+          }
+
+          # Distribute probability across bins
+          for(j in 1:L_bins) {
+            bin_lower <- length_bins[j]
+            bin_upper <- length_bins[j+1]
+
+            # Expected length next year
+            expected_length <- current_length + growth_increment
+
+            # Probability of being in bin j next year
+            prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
+
+            Growth_matrix[i, j] <- prob
+          }
+
+          # Normalize row to sum to 1 (handle edge effects)
+          row_sum <- sum(Growth_matrix[i, ])
+          if(row_sum > 0) {
+            Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
+          } else {
+            # If no growth possible (at max bin), stay in current bin
+            Growth_matrix[i, i] <- 1.0
+          }
         }
       }
       
@@ -1575,7 +1584,7 @@ server <- function(input, output, session) {
       
       # Get growth CV
       growth_cv <- input$growth_cv
-      if(growth_cv == 0) growth_cv <- 0.001
+      deterministic_mode <- (input$growth_cv == 0)
       
       # Pre-compute length-specific variables for each bin
       Wt_bins <- (alfa * bin_midpoints^bet) / 1000
@@ -1638,34 +1647,43 @@ server <- function(input, output, session) {
         current_length <- bin_midpoints[i]
         K <- growth_params$vbk
         Linf <- growth_params$Linf
-        
-        # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
-        growth_increment <- (Linf - current_length) * (1 - exp(-K))
-        growth_increment <- max(0.1, growth_increment)  # Ensure positive
-        # Set minimum SD to ensure proper scaling with bin width
-        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-        
-        # For fish at or above Linf, minimal growth with small SD
-        if(current_length >= Linf * 0.99) {
-          growth_increment <- 0.1
-          growth_sd <- max(1, bin_width * 0.15)
-        }
-        
-        # Distribute probability across bins
-        for(j in 1:L_bins) {
-          bin_lower <- length_bins[j]
-          bin_upper <- length_bins[j+1]
-          expected_length <- current_length + growth_increment
-          prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
-          Growth_matrix[i, j] <- prob
-        }
-        
-        # Normalize row to sum to 1
-        row_sum <- sum(Growth_matrix[i, ])
-        if(row_sum > 0) {
-          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
+
+        # Deterministic next-year VB length and closest bin
+        next_length <- Linf * (1 - exp(-K)) + current_length * exp(-K)
+        deterministic_bin <- which.min(abs(bin_midpoints - next_length))
+
+        if(deterministic_mode) {
+          Growth_matrix[i, ] <- 0
+          Growth_matrix[i, deterministic_bin] <- 1
         } else {
-          Growth_matrix[i, i] <- 1.0  # Stay in current bin if no growth
+          # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
+          growth_increment <- (Linf - current_length) * (1 - exp(-K))
+          growth_increment <- max(0.1, growth_increment)  # Ensure positive
+          # Set minimum SD to ensure proper scaling with bin width
+          growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
+
+          # For fish at or above Linf, minimal growth with small SD
+          if(current_length >= Linf * 0.99) {
+            growth_increment <- 0.1
+            growth_sd <- max(1, bin_width * 0.15)
+          }
+
+          # Distribute probability across bins
+          for(j in 1:L_bins) {
+            bin_lower <- length_bins[j]
+            bin_upper <- length_bins[j+1]
+            expected_length <- current_length + growth_increment
+            prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
+            Growth_matrix[i, j] <- prob
+          }
+
+          # Normalize row to sum to 1
+          row_sum <- sum(Growth_matrix[i, ])
+          if(row_sum > 0) {
+            Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
+          } else {
+            Growth_matrix[i, i] <- 1.0  # Stay in current bin if no growth
+          }
         }
       }
       
