@@ -441,7 +441,7 @@ simulate_population <- function(U, static, params) {
       YPR = YPR[Ymax, k],
       SPR = SPRt[Ymax, k],
       Prop = Prop[Ymax, k],
-      Recruit = sum(Cohort)
+      Recruit = sum(Cohort[1, ])
     )
     
     last_50_start <- max(start_year, Ymax - 49)
