@@ -265,8 +265,7 @@ simulate_population <- function(U, static, params) {
                       detail = paste("Simulation", k, "of", params$nsim))
     }
     Cohort <- matrix(0, nrow = Amax, ncol = L_bins)
-    R_eq <- Ro * rlnorm(1, 0, recruitment_sd)
-    Cohort[1, ] <- R_eq * recruit_dist
+    Cohort[1, ] <- Ro * recruit_dist
 
     N[1, ] <- colSums(Cohort)
 
@@ -274,39 +273,35 @@ simulate_population <- function(U, static, params) {
     SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
 
     for(t in 2:burn_in_span) {
+      age_survive <- Cohort * matrix(Unfished_survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
+
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
-      for(a in Amax:2) {
-        survivors <- Cohort[a - 1, ] * Unfished_survival_bins
-        newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
+      for(a in 1:(Amax - 1)) {
+        grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
+        newCohort[a + 1, ] <- grown
       }
 
-      if (isTRUE(params$enable_ddr)) {
-        SSB_prev <- SSB_burnin[t - 1]
-        SSB0_temp <- SSB_burnin[1]
-        R_BH <- (4 * params$steepness * Ro * SSB_prev) /
-          (SSB0_temp * (1 - params$steepness) + (5 * params$steepness - 1) * SSB_prev)
-        R_now <- R_BH * rlnorm(1, 0, recruitment_sd)
-      } else {
-        R_now <- Ro * rlnorm(1, 0, recruitment_sd)
-      }
-
-      newCohort[1, ] <- R_now * recruit_dist
+      newCohort[1, ] <- newCohort[1, ] + (Ro * rlnorm(1, 0, recruitment_sd)) * recruit_dist
 
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
       SSB_burnin[t] <- sum(N[t, ] * Fec_bins)
     }
 
-    start_index <- max(1, burn_in_span - 9)
-    end_index <- burn_in_span
-    SSB0 <- mean(SSB_burnin[start_index:end_index], na.rm = TRUE)
-    SPR_denom <- sum(Fec_bins * N[end_index, ])
+    burnin_start <- max(1, burn_in_span - 9)
+    SPR_denom <- mean(SSB_burnin[burnin_start:burn_in_span], na.rm = TRUE)
+    SSB0 <- SPR_denom
 
     Rcapacity <- rep(NA_real_, Ymax)
-    Rcapacity[1:burn_in_span] <- R_eq
+    if (!isTRUE(params$enable_ddr)) {
+      if (params$rec_cv == 0) {
+        Rcapacity <- rep(Ro, Ymax)
+      } else {
+        Rcapacity <- Ro * rlnorm(Ymax, 0, recruitment_sd)
+      }
+    }
 
     for(yr in 1:burn_in_span) {
-      Yield <- 0
       SSB_now <- sum(N[yr, ] * Fec_bins)
       SSBt[yr, k] <- SSB_now
       SPRt[yr, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
@@ -318,20 +313,34 @@ simulate_population <- function(U, static, params) {
     for(t in start_year:Ymax) {
       if (isTRUE(params$enable_ddr)) {
         SSB_prev <- sum(N[t - 1, ] * Fec_bins)
+        SSB_prev <- max(0, SSB_prev)
         R_BH <- (4 * params$steepness * Ro * SSB_prev) /
           (SSB0 * (1 - params$steepness) + (5 * params$steepness - 1) * SSB_prev)
-        R_now <- R_BH * rlnorm(1, 0, recruitment_sd)
-      } else {
-        R_now <- Ro * rlnorm(1, 0, recruitment_sd)
+        R_BH <- max(1, R_BH)
+
+        if (isTRUE(params$enable_depensation) && SSB_prev < 0.2 * SSB0) {
+          depensation_factor <- (SSB_prev / (0.2 * SSB0))^2
+          R_BH <- R_BH * depensation_factor
+        }
+
+        if (params$rec_cv == 0) {
+          Rcapacity[t] <- max(1, R_BH)
+        } else {
+          Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, recruitment_sd))
+        }
       }
+
+      R_now <- Rcapacity[t]
+
+      age_survive <- Cohort * matrix(S_fished, nrow = Amax, ncol = L_bins, byrow = TRUE)
 
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
-      for(a in Amax:2) {
-        survivors <- Cohort[a - 1, ] * S_fished
-        newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
+      for(a in 1:(Amax - 1)) {
+        grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
+        newCohort[a + 1, ] <- grown
       }
 
-      newCohort[1, ] <- R_now * recruit_dist
+      newCohort[1, ] <- newCohort[1, ] + R_now * recruit_dist
 
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
@@ -339,14 +348,11 @@ simulate_population <- function(U, static, params) {
       lf_a <- N[t, ]
       yield <- U * sum(Vulharv_bins * Wt_bins * lf_a)
       SSB_now <- sum(Fec_bins * lf_a)
-      l_a_unfished <- N[end_index, ]
-      SPR_num <- sum(Fec_bins * lf_a)
-      SPR_denom_current <- sum(Fec_bins * l_a_unfished)
       Trophy_prop <- ifelse(sum(lf_a) > 0, sum(trophyvul_bins * lf_a) / sum(lf_a), 0)
 
       YPR[t, k] <- ifelse(R_now > 0, yield / R_now, 0)
       SSBt[t, k] <- SSB_now
-      SPRt[t, k] <- if (SPR_denom_current > 0) SPR_num / SPR_denom_current else 0
+      SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- Trophy_prop
 
       harvest_by_bin <- lf_a * Vulharv_bins * U
