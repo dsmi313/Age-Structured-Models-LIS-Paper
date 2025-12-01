@@ -391,9 +391,10 @@ simulate_population <- function(U, static, params) {
       Prop[t, k] <- sum(lf_a * trophyvul_bins) / max(1, sum(lf_a))
 
       harvest_by_bin <- lf_a * Vulharv_bins * U
-      harvest_total <- sum(harvest_by_bin)
+      rounded_counts <- round(harvest_by_bin)
+      harvest_total <- sum(rounded_counts)
       mean_harvest_length[t, k] <- if (harvest_total > 0) {
-        sum(harvest_by_bin * bin_midpoints) / harvest_total
+        sum(bin_midpoints * rounded_counts) / harvest_total
       } else {
         NA_real_
       }
