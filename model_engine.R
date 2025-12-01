@@ -317,21 +317,10 @@ simulate_population <- function(U, static, params) {
         survivors <- Cohort[a - 1, ] * Unfished_survival_bins
         newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
       }
-      
+
+      # BURN-IN: Always use R0 (no DDR) to establish unfished equilibrium
       R <- Ro
-      if (isTRUE(params$enable_ddr)) {
-        if (is.null(alpha_beta)) {
-          alpha_beta <- bh_params(h = params$steepness, Ro = Ro, SSB0 = SSB_burnin[1])
-        }
-        R <- alpha_beta$alpha * SSB_burnin[t - 1] / (1 + alpha_beta$beta * SSB_burnin[t - 1])
-      }
-      if (isTRUE(params$enable_depensation) && isTRUE(params$enable_ddr)) {
-        depensation_threshold <- 0.2 * SSB_burnin[1]
-        if (SSB_burnin[t - 1] < depensation_threshold) {
-          R <- R * (SSB_burnin[t - 1] / depensation_threshold)^2
-        }
-      }
-      
+
       # Add stochastic noise (or deterministic if rec_cv = 0)
       if (params$rec_cv == 0) {
         R <- max(0, R)
@@ -339,7 +328,7 @@ simulate_population <- function(U, static, params) {
         R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
       }
       newCohort[1, ] <- R * recruit_dist
-      
+
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
       SSB_burnin[t] <- sum(N[t, ] * Fec_bins)
