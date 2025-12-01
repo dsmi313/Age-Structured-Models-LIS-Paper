@@ -28,8 +28,8 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
   Capsize <- input$capsize
   Memorable_size <- input$memorable_size
 
-  CapsizeSD <- Capsize * 0.05
-  HarvlimSD <- Harvlim * 0.05
+  CapsizeSD <- Capsize * 0.01
+  HarvlimSD <- Harvlim * 0.01
 
   Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
 
