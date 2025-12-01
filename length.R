@@ -643,7 +643,6 @@ server <- function(input, output, session) {
       
       # Get growth CV
       growth_cv <- input$growth_cv
-      if(growth_cv == 0) growth_cv <- 0.001  # Avoid division by zero
       
       # Pre-compute length-specific variables for each bin
       # Weight at length
@@ -740,35 +739,45 @@ server <- function(input, output, session) {
         # Proper VB increment: ΔL = (L∞ - L_t) * (1 - exp(-K))
         # This gives: L_{t+1} = L∞ * (1 - exp(-K)) + L_t * exp(-K)
         growth_increment <- (Linf - current_length) * (1 - exp(-K))
-        
+
         # Ensure positive growth, even for fish at/above Linf
         growth_increment <- max(0.1, growth_increment)
-        
+
+        expected_length <- current_length + growth_increment
+
+        # === deterministic case when growth_cv == 0 (age cohort approach) ===
+        if(growth_cv == 0) {
+          next_bin <- which.min(abs(bin_midpoints - expected_length))
+
+          Growth_matrix[i, ] <- 0
+          Growth_matrix[i, next_bin] <- 1
+          next  # skip to next i (next length bin)
+        }
+
+        # === stochastic case (normal distribution) ===
         # Add variability: SD = growth_increment * CV
         # Set minimum SD to avoid pnorm() issues and ensure proper scaling with bin width
         # Ensures variability scales appropriately for both small (crappie) and large (catfish) species
         growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-        
+
         # For fish at or above Linf, minimal growth with small SD
         if(current_length >= Linf * 0.99) {
           growth_increment <- 0.1
           growth_sd <- max(1, bin_width * 0.15)
+          expected_length <- current_length + growth_increment
         }
-        
+
         # Distribute probability across bins
         for(j in 1:L_bins) {
           bin_lower <- length_bins[j]
           bin_upper <- length_bins[j+1]
-          
-          # Expected length next year
-          expected_length <- current_length + growth_increment
-          
+
           # Probability of being in bin j next year
           prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
-          
+
           Growth_matrix[i, j] <- prob
         }
-        
+
         # Normalize row to sum to 1 (handle edge effects)
         row_sum <- sum(Growth_matrix[i, ])
         if(row_sum > 0) {
@@ -802,23 +811,32 @@ server <- function(input, output, session) {
       
       # Calculate mean recruitment length (age-1) and its distribution
       age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
-      
+
       # Create recruitment length distribution (which bins do age-1 fish go into?)
       recruit_dist <- rep(0, L_bins)
-      for(j in 1:L_bins) {
-        bin_lower <- length_bins[j]
-        bin_upper <- length_bins[j+1]
-        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
-        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
-      }
-      # Normalize and handle edge case of all zeros
-      if(sum(recruit_dist) > 0) {
-        recruit_dist <- recruit_dist / sum(recruit_dist)
-      } else {
-        # Fallback: put all recruitment in the bin closest to age1_mean_length
+
+      # === deterministic case when growth_cv == 0 (age cohort approach) ===
+      if(growth_cv == 0) {
         closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
         recruit_dist[closest_bin] <- 1.0
+      } else {
+        # === stochastic case (normal distribution) ===
+        age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
+
+        for(j in 1:L_bins) {
+          bin_lower <- length_bins[j]
+          bin_upper <- length_bins[j+1]
+          prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
+          recruit_dist[j] <- max(0, prob)  # Ensure non-negative
+        }
+        # Normalize and handle edge case of all zeros
+        if(sum(recruit_dist) > 0) {
+          recruit_dist <- recruit_dist / sum(recruit_dist)
+        } else {
+          # Fallback: put all recruitment in the bin closest to age1_mean_length
+          closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
+          recruit_dist[closest_bin] <- 1.0
+        }
       }
       
       burnin_years <- min(Ymax, input$amax + 20)
@@ -1584,7 +1602,6 @@ server <- function(input, output, session) {
       
       # Get growth CV
       growth_cv <- input$growth_cv
-      if(growth_cv == 0) growth_cv <- 0.001
       
       # Pre-compute length-specific variables for each bin
       Wt_bins <- (alfa * bin_midpoints^bet) / 1000
@@ -1660,24 +1677,37 @@ server <- function(input, output, session) {
         # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
         growth_increment <- (Linf - current_length) * (1 - exp(-K))
         growth_increment <- max(0.1, growth_increment)  # Ensure positive
+
+        expected_length <- current_length + growth_increment
+
+        # === deterministic case when growth_cv == 0 (age cohort approach) ===
+        if(growth_cv == 0) {
+          next_bin <- which.min(abs(bin_midpoints - expected_length))
+
+          Growth_matrix[i, ] <- 0
+          Growth_matrix[i, next_bin] <- 1
+          next  # skip to next i (next length bin)
+        }
+
+        # === stochastic case (normal distribution) ===
         # Set minimum SD to ensure proper scaling with bin width
         growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-        
+
         # For fish at or above Linf, minimal growth with small SD
         if(current_length >= Linf * 0.99) {
           growth_increment <- 0.1
           growth_sd <- max(1, bin_width * 0.15)
+          expected_length <- current_length + growth_increment
         }
-        
+
         # Distribute probability across bins
         for(j in 1:L_bins) {
           bin_lower <- length_bins[j]
           bin_upper <- length_bins[j+1]
-          expected_length <- current_length + growth_increment
           prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
           Growth_matrix[i, j] <- prob
         }
-        
+
         # Normalize row to sum to 1
         row_sum <- sum(Growth_matrix[i, ])
         if(row_sum > 0) {
@@ -1689,23 +1719,32 @@ server <- function(input, output, session) {
       
       # Calculate mean recruitment length (age-1) and its distribution
       age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
-      
+
       # Create recruitment length distribution (which bins do age-1 fish go into?)
       recruit_dist <- rep(0, L_bins)
-      for(j in 1:L_bins) {
-        bin_lower <- length_bins[j]
-        bin_upper <- length_bins[j+1]
-        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
-        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
-      }
-      # Normalize and handle edge case of all zeros
-      if(sum(recruit_dist) > 0) {
-        recruit_dist <- recruit_dist / sum(recruit_dist)
-      } else {
-        # Fallback: put all recruitment in the bin closest to age1_mean_length
+
+      # === deterministic case when growth_cv == 0 (age cohort approach) ===
+      if(growth_cv == 0) {
         closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
         recruit_dist[closest_bin] <- 1.0
+      } else {
+        # === stochastic case (normal distribution) ===
+        age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
+
+        for(j in 1:L_bins) {
+          bin_lower <- length_bins[j]
+          bin_upper <- length_bins[j+1]
+          prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
+          recruit_dist[j] <- max(0, prob)  # Ensure non-negative
+        }
+        # Normalize and handle edge case of all zeros
+        if(sum(recruit_dist) > 0) {
+          recruit_dist <- recruit_dist / sum(recruit_dist)
+        } else {
+          # Fallback: put all recruitment in the bin closest to age1_mean_length
+          closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
+          recruit_dist[closest_bin] <- 1.0
+        }
       }
       
       # Get number of simulations
