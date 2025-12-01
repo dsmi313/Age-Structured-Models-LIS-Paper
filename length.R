@@ -39,8 +39,14 @@ ui <- fluidPage(
       numericInput("nat_mort", "Natural Mortality (M):", value = 0.35, min = 0.05, max = 1.0, step = 0.01),
       helpText(tags$small(tags$em("Annual natural mortality rate"))),
       
-      numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.1, max = 1.5, step = 0.05),
-      helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (higher = more variable)"))),
+      numericInput("rec_cv", "Recruitment CV:", value = 0.8, min = 0.0, max = 1.5, step = 0.05),
+      helpText(tags$small(tags$em("Coefficient of variation for stochastic recruitment (0 = deterministic, higher = more variable)"))),
+      
+      numericInput("R0", "Unfished Recruitment (R0):", value = 10000, min = 100, max = 1000000, step = 1000),
+      helpText(tags$small(tags$em("Average recruitment in unfished equilibrium (number of age-1 fish)"))),
+      
+      numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 50, step = 1),
+      helpText(tags$small(tags$em("Maximum age class in the model"))),
       
       # Density-Dependent Recruitment (Experimental)
       h4("Recruitment Dynamics (Experimental)", style = "color: orange;"),
@@ -55,9 +61,6 @@ ui <- fluidPage(
         checkboxInput("enable_depensation", "Enable Depensation (Allee Effects)", value = FALSE),
         helpText(tags$small(tags$em("When enabled, recruitment crashes when SSB drops below 20% of unfished level. Simulates mate-finding failure, predator swamping failure, and other critical thresholds.")))
       ),
-      
-      numericInput("amax", "Maximum Age (years):", value = 8, min = 5, max = 50, step = 1),
-      helpText(tags$small(tags$em("Maximum age class in the model"))),
       br(),
       
       # Growth Parameters
@@ -620,7 +623,7 @@ server <- function(input, output, session) {
       Nat_mort <- input$nat_mort
       
       # Stock-recruit
-      Ro <- 10000
+      Ro <- input$R0
       
       # Vulnerabilities
       Capsize <- input$capsize
@@ -643,7 +646,6 @@ server <- function(input, output, session) {
       
       # Get growth CV
       growth_cv <- input$growth_cv
-      deterministic_mode <- (input$growth_cv == 0)
       
       # Pre-compute length-specific variables for each bin
       # Weight at length
@@ -699,17 +701,29 @@ server <- function(input, output, session) {
       # Get exploitation rate
       U <- input$exploitation
       
-      # Natural mortality (length-specific survival rate)
+      # Size-dependent natural mortality
+      M_adult <- Nat_mort
+      M_bins <- rep(M_adult, L_bins)
+      
+      # Juveniles have higher mortality
       juvenile_threshold <- input$mat_size * 0.5
-      M_bins <- rep(Nat_mort, L_bins)
-      M_bins[bin_midpoints < juvenile_threshold] <- Nat_mort * 2.0
-      M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < input$mat_size] <- Nat_mort * 1.5
-      M_bins[bin_midpoints >= input$mat_size] <- Nat_mort
+      M_bins[bin_midpoints < juvenile_threshold] <- M_adult * 2.0
+      M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < input$mat_size] <- M_adult * 1.5
+      
+      # Annual survival by length bin (natural mortality only)
       S_bins <- exp(-M_bins)
       
       # UNFISHED survival by length bin (natural mortality only, NO fishing)
       # This is used for building unfished equilibrium and SPR denominator
       Unfished_survival_bins <- S_bins
+      
+      # FISHED survival by length bin (includes fishing mortality)
+      # Fishing mortality by length bin
+      F_bins <- Vulharv_bins * U
+      # Release mortality from discarded fish
+      Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
+      # Total annual survival by length bin WITH FISHING
+      Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
       
       # ========================================================================
       # GROWTH TRANSITION MATRIX
@@ -724,55 +738,56 @@ server <- function(input, output, session) {
         K <- growth_params$vbk
         Linf <- growth_params$Linf
         
-        # Deterministic next-year VB length and closest bin
-        next_length <- Linf * (1 - exp(-K)) + current_length * exp(-K)
-        deterministic_bin <- which.min(abs(bin_midpoints - next_length))
+        # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
+        # Proper VB increment: ΔL = (L∞ - L_t) * (1 - exp(-K))
+        # This gives: L_{t+1} = L∞ * (1 - exp(-K)) + L_t * exp(-K)
+        growth_increment <- (Linf - current_length) * (1 - exp(-K))
         
-        if(deterministic_mode) {
+        # Ensure positive growth, even for fish at/above Linf
+        growth_increment <- max(0.1, growth_increment)
+        
+        expected_length <- current_length + growth_increment
+        
+        # === deterministic case when growth_cv == 0 (age cohort approach) ===
+        if(growth_cv == 0) {
+          next_bin <- which.min(abs(bin_midpoints - expected_length))
+          
           Growth_matrix[i, ] <- 0
-          Growth_matrix[i, deterministic_bin] <- 1
+          Growth_matrix[i, next_bin] <- 1
+          next  # skip to next i (next length bin)
+        }
+        
+        # === stochastic case (normal distribution) ===
+        # Add variability: SD = growth_increment * CV
+        # Set minimum SD to avoid pnorm() issues and ensure proper scaling with bin width
+        # Ensures variability scales appropriately for both small (crappie) and large (catfish) species
+        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
+        
+        # For fish at or above Linf, minimal growth with small SD
+        if(current_length >= Linf * 0.99) {
+          growth_increment <- 0.1
+          growth_sd <- max(1, bin_width * 0.15)
+          expected_length <- current_length + growth_increment
+        }
+        
+        # Distribute probability across bins
+        for(j in 1:L_bins) {
+          bin_lower <- length_bins[j]
+          bin_upper <- length_bins[j+1]
+          
+          # Probability of being in bin j next year
+          prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
+          
+          Growth_matrix[i, j] <- prob
+        }
+        
+        # Normalize row to sum to 1 (handle edge effects)
+        row_sum <- sum(Growth_matrix[i, ])
+        if(row_sum > 0) {
+          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
         } else {
-          # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
-          # Proper VB increment: ΔL = (L∞ - L_t) * (1 - exp(-K))
-          # This gives: L_{t+1} = L∞ * (1 - exp(-K)) + L_t * exp(-K)
-          growth_increment <- (Linf - current_length) * (1 - exp(-K))
-          
-          # Ensure positive growth, even for fish at/above Linf
-          growth_increment <- max(0.1, growth_increment)
-          
-          # Add variability: SD = growth_increment * CV
-          # Set minimum SD to avoid pnorm() issues and ensure proper scaling with bin width
-          # Ensures variability scales appropriately for both small (crappie) and large (catfish) species
-          growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-          
-          # For fish at or above Linf, minimal growth with small SD
-          if(current_length >= Linf * 0.99) {
-            growth_increment <- 0.1
-            growth_sd <- max(1, bin_width * 0.15)
-          }
-          
-          # Distribute probability across bins
-          for(j in 1:L_bins) {
-            bin_lower <- length_bins[j]
-            bin_upper <- length_bins[j+1]
-            
-            # Expected length next year
-            expected_length <- current_length + growth_increment
-            
-            # Probability of being in bin j next year
-            prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
-            
-            Growth_matrix[i, j] <- prob
-          }
-          
-          # Normalize row to sum to 1 (handle edge effects)
-          row_sum <- sum(Growth_matrix[i, ])
-          if(row_sum > 0) {
-            Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
-          } else {
-            # If no growth possible (at max bin), stay in current bin
-            Growth_matrix[i, i] <- 1.0
-          }
+          # If no growth possible (at max bin), stay in current bin
+          Growth_matrix[i, i] <- 1.0
         }
       }
       
@@ -799,23 +814,32 @@ server <- function(input, output, session) {
       
       # Calculate mean recruitment length (age-1) and its distribution
       age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
       
       # Create recruitment length distribution (which bins do age-1 fish go into?)
       recruit_dist <- rep(0, L_bins)
-      for(j in 1:L_bins) {
-        bin_lower <- length_bins[j]
-        bin_upper <- length_bins[j+1]
-        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
-        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
-      }
-      # Normalize and handle edge case of all zeros
-      if(sum(recruit_dist) > 0) {
-        recruit_dist <- recruit_dist / sum(recruit_dist)
-      } else {
-        # Fallback: put all recruitment in the bin closest to age1_mean_length
+      
+      # === deterministic case when growth_cv == 0 (age cohort approach) ===
+      if(growth_cv == 0) {
         closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
         recruit_dist[closest_bin] <- 1.0
+      } else {
+        # === stochastic case (normal distribution) ===
+        age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
+        
+        for(j in 1:L_bins) {
+          bin_lower <- length_bins[j]
+          bin_upper <- length_bins[j+1]
+          prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
+          recruit_dist[j] <- max(0, prob)  # Ensure non-negative
+        }
+        # Normalize and handle edge case of all zeros
+        if(sum(recruit_dist) > 0) {
+          recruit_dist <- recruit_dist / sum(recruit_dist)
+        } else {
+          # Fallback: put all recruitment in the bin closest to age1_mean_length
+          closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
+          recruit_dist[closest_bin] <- 1.0
+        }
       }
       
       burnin_years <- min(Ymax, input$amax + 20)
@@ -832,6 +856,7 @@ server <- function(input, output, session) {
         YPR <- rep(NA, Ymax)
         Prop <- rep(NA, Ymax)
         SSBt <- rep(NA, Ymax)  # Spawning stock biomass time series
+        
         # Set initial population structure (UNFISHED equilibrium in length bins)
         # Start with recruitment distributed across length bins
         age_len[1, ] <- Ro * recruit_dist
@@ -874,8 +899,14 @@ server <- function(input, output, session) {
           # Will be calculated dynamically inside loop based on SSB
           Rcapacity <- rep(NA, Ymax)
         } else {
-          # Traditional per-recruit: constant mean recruitment with noise
-          Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+          # Traditional per-recruit: constant mean recruitment
+          if(input$rec_cv == 0) {
+            # Deterministic recruitment when CV = 0
+            Rcapacity <- rep(Ro, Ymax)
+          } else {
+            # Stochastic recruitment with lognormal noise
+            Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+          }
         }
         
         # Get steepness if DDR is enabled
@@ -914,21 +945,21 @@ server <- function(input, output, session) {
               R_BH <- R_BH * depensation_factor
             }
             
-            # Add stochastic noise
-            Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+            # Add stochastic noise (or deterministic if rec_cv = 0)
+            if(input$rec_cv == 0) {
+              Rcapacity[i] <- max(1, R_BH)
+            } else {
+              Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+            }
           }
           
-          # Apply natural and fishing mortality by age and length bin
-          after_M <- age_len * matrix(S_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
-          harvest <- after_M * matrix(Vulharv_bins * U, nrow = Amax, ncol = L_bins, byrow = TRUE)
-          disc_catch <- after_M * matrix((Vulcap_bins - Vulharv_bins) * U, nrow = Amax, ncol = L_bins, byrow = TRUE)
-          discard_death <- disc_catch * DisMort
-          N_survive <- after_M - harvest - discard_death
+          # Apply survival to previous year's population by age
+          age_survive <- age_len * matrix(Survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
           
           # Apply growth (transition to new length bins) and age the cohorts
           new_age_len <- matrix(0, Amax, L_bins)
           for(a in 1:(Amax - 1)) {
-            grown <- as.vector(N_survive[a, ] %*% Growth_matrix)
+            grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
             new_age_len[a + 1, ] <- grown
           }
           
@@ -940,8 +971,8 @@ server <- function(input, output, session) {
           
           # Calculate annual metrics
           total_recruits <- Rcapacity[i]  # Now correctly using actual recruitment
-          harvested_numbers <- colSums(harvest)
-          Yield[i] <- sum(Wt_bins * harvested_numbers)
+          
+          Yield[i] <- sum(Wt_bins * Vulharv_bins * N[i, ]) * U
           SSBt[i] <- sum(N[i, ] * Fec_bins)  # Spawning stock biomass
           SPRt[i] <- SSBt[i] / SPR_denom
           # YPR = Yield / Recruitment. With DDR, this has a less clean interpretation than
@@ -1561,7 +1592,7 @@ server <- function(input, output, session) {
       Nat_mort <- input$nat_mort
       
       # Stock-recruit
-      Ro <- 10000
+      Ro <- input$R0
       
       # Vulnerabilities (use current settings)
       Capsize <- input$capsize
@@ -1584,7 +1615,6 @@ server <- function(input, output, session) {
       
       # Get growth CV
       growth_cv <- input$growth_cv
-      deterministic_mode <- (input$growth_cv == 0)
       
       # Pre-compute length-specific variables for each bin
       Wt_bins <- (alfa * bin_midpoints^bet) / 1000
@@ -1633,14 +1663,17 @@ server <- function(input, output, session) {
       # Trophy vulnerability by length
       trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
       
-      # Natural mortality (length-specific)
-      juvenile_threshold <- input$mat_size * 0.5
-      M_bins <- rep(Nat_mort, L_bins)
-      M_bins[bin_midpoints < juvenile_threshold] <- Nat_mort * 2.0
-      M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < input$mat_size] <- Nat_mort * 1.5
-      M_bins[bin_midpoints >= input$mat_size] <- Nat_mort
-      S_bins <- exp(-M_bins)
+      # Size-dependent natural mortality
+      M_adult <- Nat_mort
+      M_bins <- rep(M_adult, L_bins)
       
+      # Juveniles have higher mortality
+      juvenile_threshold <- input$mat_size * 0.5
+      M_bins[bin_midpoints < juvenile_threshold] <- M_adult * 2.0
+      M_bins[bin_midpoints >= juvenile_threshold & bin_midpoints < input$mat_size] <- M_adult * 1.5
+      
+      # Annual survival by length bin (natural mortality only)
+      S_bins <- exp(-M_bins)
       Unfished_survival_bins <- S_bins
       
       # Convert CV to lognormal sigma
@@ -1654,64 +1687,77 @@ server <- function(input, output, session) {
         K <- growth_params$vbk
         Linf <- growth_params$Linf
         
-        # Deterministic next-year VB length and closest bin
-        next_length <- Linf * (1 - exp(-K)) + current_length * exp(-K)
-        deterministic_bin <- which.min(abs(bin_midpoints - next_length))
+        # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
+        growth_increment <- (Linf - current_length) * (1 - exp(-K))
+        growth_increment <- max(0.1, growth_increment)  # Ensure positive
         
-        if(deterministic_mode) {
+        expected_length <- current_length + growth_increment
+        
+        # === deterministic case when growth_cv == 0 (age cohort approach) ===
+        if(growth_cv == 0) {
+          next_bin <- which.min(abs(bin_midpoints - expected_length))
+          
           Growth_matrix[i, ] <- 0
-          Growth_matrix[i, deterministic_bin] <- 1
+          Growth_matrix[i, next_bin] <- 1
+          next  # skip to next i (next length bin)
+        }
+        
+        # === stochastic case (normal distribution) ===
+        # Set minimum SD to ensure proper scaling with bin width
+        growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
+        
+        # For fish at or above Linf, minimal growth with small SD
+        if(current_length >= Linf * 0.99) {
+          growth_increment <- 0.1
+          growth_sd <- max(1, bin_width * 0.15)
+          expected_length <- current_length + growth_increment
+        }
+        
+        # Distribute probability across bins
+        for(j in 1:L_bins) {
+          bin_lower <- length_bins[j]
+          bin_upper <- length_bins[j+1]
+          prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
+          Growth_matrix[i, j] <- prob
+        }
+        
+        # Normalize row to sum to 1
+        row_sum <- sum(Growth_matrix[i, ])
+        if(row_sum > 0) {
+          Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
         } else {
-          # Growth increment (mechanistic von Bertalanffy for discrete annual time step)
-          growth_increment <- (Linf - current_length) * (1 - exp(-K))
-          growth_increment <- max(0.1, growth_increment)  # Ensure positive
-          # Set minimum SD to ensure proper scaling with bin width
-          growth_sd <- max(1, growth_increment * growth_cv, bin_width * 0.15)
-          
-          # For fish at or above Linf, minimal growth with small SD
-          if(current_length >= Linf * 0.99) {
-            growth_increment <- 0.1
-            growth_sd <- max(1, bin_width * 0.15)
-          }
-          
-          # Distribute probability across bins
-          for(j in 1:L_bins) {
-            bin_lower <- length_bins[j]
-            bin_upper <- length_bins[j+1]
-            expected_length <- current_length + growth_increment
-            prob <- pnorm(bin_upper, expected_length, growth_sd) - pnorm(bin_lower, expected_length, growth_sd)
-            Growth_matrix[i, j] <- prob
-          }
-          
-          # Normalize row to sum to 1
-          row_sum <- sum(Growth_matrix[i, ])
-          if(row_sum > 0) {
-            Growth_matrix[i, ] <- Growth_matrix[i, ] / row_sum
-          } else {
-            Growth_matrix[i, i] <- 1.0  # Stay in current bin if no growth
-          }
+          Growth_matrix[i, i] <- 1.0  # Stay in current bin if no growth
         }
       }
       
       # Calculate mean recruitment length (age-1) and its distribution
       age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-      age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
       
       # Create recruitment length distribution (which bins do age-1 fish go into?)
       recruit_dist <- rep(0, L_bins)
-      for(j in 1:L_bins) {
-        bin_lower <- length_bins[j]
-        bin_upper <- length_bins[j+1]
-        prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
-        recruit_dist[j] <- max(0, prob)  # Ensure non-negative
-      }
-      # Normalize and handle edge case of all zeros
-      if(sum(recruit_dist) > 0) {
-        recruit_dist <- recruit_dist / sum(recruit_dist)
-      } else {
-        # Fallback: put all recruitment in the bin closest to age1_mean_length
+      
+      # === deterministic case when growth_cv == 0 (age cohort approach) ===
+      if(growth_cv == 0) {
         closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
         recruit_dist[closest_bin] <- 1.0
+      } else {
+        # === stochastic case (normal distribution) ===
+        age1_sd_length <- max(0.5, age1_mean_length * growth_cv)  # Minimum SD to avoid issues
+        
+        for(j in 1:L_bins) {
+          bin_lower <- length_bins[j]
+          bin_upper <- length_bins[j+1]
+          prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
+          recruit_dist[j] <- max(0, prob)  # Ensure non-negative
+        }
+        # Normalize and handle edge case of all zeros
+        if(sum(recruit_dist) > 0) {
+          recruit_dist <- recruit_dist / sum(recruit_dist)
+        } else {
+          # Fallback: put all recruitment in the bin closest to age1_mean_length
+          closest_bin <- which.min(abs(bin_midpoints - age1_mean_length))
+          recruit_dist[closest_bin] <- 1.0
+        }
       }
       
       # Get number of simulations
@@ -1747,6 +1793,14 @@ server <- function(input, output, session) {
         incProgress(1/length(U_values), detail = paste("U =", round(U_values[u_idx], 2)))
         
         U_test <- U_values[u_idx]
+        
+        # Fishing mortality and survival by length bin (for this U)
+        F_bins <- Vulharv_bins * U_test
+        Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U_test * DisMort
+        Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
+        
+        # Harvest weight by length bin
+        Wt_harvest_bins <- Wt_bins * Vulharv_bins
         
         ypr_vals <- numeric(nsim)
         spr_vals <- numeric(nsim)
@@ -1790,8 +1844,14 @@ server <- function(input, output, session) {
             # Will be calculated dynamically inside loop based on SSB
             Rcapacity <- rep(NA, Ymax_yield)
           } else {
-            # Traditional per-recruit: constant mean recruitment with noise
-            Rcapacity <- Ro * rlnorm(Ymax_yield, 0, sd = sigmaR)
+            # Traditional per-recruit: constant mean recruitment
+            if(input$rec_cv == 0) {
+              # Deterministic recruitment when CV = 0
+              Rcapacity <- rep(Ro, Ymax_yield)
+            } else {
+              # Stochastic recruitment with lognormal noise
+              Rcapacity <- Ro * rlnorm(Ymax_yield, 0, sd = sigmaR)
+            }
           }
           
           # Get steepness if DDR is enabled
@@ -1827,16 +1887,16 @@ server <- function(input, output, session) {
                 R_BH <- R_BH * depensation_factor
               }
               
-              # Add stochastic noise
-              Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+              # Add stochastic noise (or deterministic if rec_cv = 0)
+              if(input$rec_cv == 0) {
+                Rcapacity[i] <- max(1, R_BH)
+              } else {
+                Rcapacity[i] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
+              }
             }
             
-            # Apply natural and fishing mortality (proportional exploitation)
-            after_M <- N[i-1, ] * S_bins
-            harvest <- after_M * Vulharv_bins * U_test
-            disc_catch <- after_M * (Vulcap_bins - Vulharv_bins) * U_test
-            discard_death <- disc_catch * DisMort
-            N_survive <- after_M - harvest - discard_death
+            # Apply FISHED survival (includes fishing mortality)
+            N_survive <- N[i-1, ] * Survival_bins
             
             # Apply growth (move to new length bins)
             N[i, ] <- as.vector(N_survive %*% Growth_matrix)
@@ -1845,11 +1905,11 @@ server <- function(input, output, session) {
             N[i, ] <- N[i, ] + Rcapacity[i] * recruit_dist
             
             # Calculate metrics
-            harvested_weight <- sum(Wt_bins * harvest)
+            harvest_weight <- sum(Wt_harvest_bins * N[i, ])
             fecundity_now <- sum(Fec_bins * N[i, ])
             abundance_now <- max(1, sum(N[i, ]))  # Prevent division by zero
             
-            YPR[i] <- harvested_weight / max(1, Rcapacity[i])  # Prevent division by zero
+            YPR[i] <- (harvest_weight * U_test) / max(1, Rcapacity[i])  # Prevent division by zero
             SPRt[i] <- fecundity_now / SPR_denom
             Prop[i] <- sum(trophyvul_bins * N[i, ]) / abundance_now
           }
