@@ -24,41 +24,55 @@ build_length_bins <- function(input, bin_width = 10, growth_params = get_growth_
 }
 
 build_vulnerability_curves <- function(input, bin_midpoints) {
-  Capsize <- input$capsize
-  CapsizeSD <- Capsize * 0.01
   Harvlim <- input$harvlim
+  Capsize <- input$capsize
+  Memorable_size <- input$memorable_size
+
+  if (is.null(Capsize) && !is.null(input$species)) {
+    Capsize <- switch(
+      input$species,
+      "white_crappie" = 204,
+      "black_crappie" = 204,
+      "walleye" = 330,
+      "lmb" = 280,
+      "smb" = 280,
+      "channel_catfish" = 300,
+      "blue_catfish" = 300,
+      Capsize
+    )
+  }
+
+  CapsizeSD <- Capsize * 0.01
   HarvlimSD <- Harvlim * 0.01
-  
+
   Vulcap_bins <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
-  
-  if(input$enable_slot) {
+
+  if (isTRUE(input$enable_slot)) {
     Slot_upper <- input$slot_upper
-    Slot_upperSD <- 0.01
-    HarvlimSD_slot <- 0.01
+    Slot_upperSD <- Slot_upper * 0.01
+    HarvlimSD_slot <- Harvlim * 0.01
     Effective_min <- max(Harvlim, Capsize)
-    
+
     Vulharv_above_min <- 1 / (1 + exp(-(bin_midpoints - Effective_min) / HarvlimSD_slot))
     Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Slot_upper) / Slot_upperSD))
-    
-    if(input$slot_type == "traditional") {
-      Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
+
+    if (identical(input$slot_type, "protective")) {
+      Vulharv_bins <- Vulharv_above_min * (1 - Vulharv_below_max)
     } else {
-      Vulharv_bins <- (1 - (Vulharv_above_min * Vulharv_below_max)) * Vulcap_bins
+      Vulharv_bins <- Vulharv_above_min * Vulharv_below_max
     }
-  } else if(input$enable_max_limit) {
+  } else if (isTRUE(input$enable_max_limit)) {
     Max_harvest_size <- input$max_harvest_size
-    Max_harvestSD <- 0.01
+    Max_harvestSD <- Max_harvest_size * 0.01
     Vulharv_above_capture <- 1 / (1 + exp(-(bin_midpoints - Capsize) / CapsizeSD))
     Vulharv_below_max <- 1 / (1 + exp((bin_midpoints - Max_harvest_size) / Max_harvestSD))
     Vulharv_bins <- Vulharv_above_capture * Vulharv_below_max
   } else {
     Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
   }
-  
-  Vulharv_bins[bin_midpoints < Harvlim] <- 0
-  
-  trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
-  
+
+  trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - Memorable_size) / (Memorable_size * 0.1)))) * Vulcap_bins
+
   list(
     Vulcap_bins = Vulcap_bins,
     Vulharv_bins = Vulharv_bins,
@@ -67,17 +81,21 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
 }
 
 build_mortality <- function(input, length_bins) {
-  # Size-dependent natural mortality
-  M_adult <- input$nat_mort
-  mat_size_val <- input$mat_size
-  
-  M_bins <- rep(M_adult, length_bins$L_bins)
-  
-  # Juveniles have higher mortality
-  juvenile_threshold <- mat_size_val * 0.5
-  M_bins[length_bins$bin_midpoints < juvenile_threshold] <- M_adult * 2.0
-  M_bins[length_bins$bin_midpoints >= juvenile_threshold & length_bins$bin_midpoints < mat_size_val] <- M_adult * 1.5
-  
+  # Base natural mortality M
+  M <- input$nat_mort
+  mat_size <- input$mat_size
+
+  M_bins <- rep(M, length_bins$L_bins)
+
+  # Juveniles: double mortality
+  M_bins[length_bins$bin_midpoints < 0.5 * mat_size] <- M * 2
+
+  # Subadults: 1.5 × M
+  M_bins[length_bins$bin_midpoints >= 0.5 * mat_size & length_bins$bin_midpoints < mat_size] <- M * 1.5
+
+  # Adults: M as-is
+
+  # Annual survival due to natural mortality alone
   S_bins <- exp(-M_bins)
   
   list(
@@ -102,9 +120,9 @@ build_fecundity <- function(input, Wt_bins, maturity_ogive_bins) {
 }
 
 
-build_recruit_distribution <- function(input, length_bins, growth_params = get_growth_params(input), growth_cv_effective) {
+build_recruit_distribution <- function(input, length_bins, growth_params = get_growth_params(input)) {
   age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
-  
+
   L_bins <- length(length_bins$length_bins) - 1
   recruit_dist <- rep(0, L_bins)
   
@@ -114,9 +132,9 @@ build_recruit_distribution <- function(input, length_bins, growth_params = get_g
     recruit_dist[closest_bin] <- 1.0
     return(recruit_dist)
   }
-  
+
   # === stochastic case (normal distribution) ===
-  age1_sd_length <- max(0.5, age1_mean_length * growth_cv_effective)
+  age1_sd_length <- max(0.5, age1_mean_length * input$growth_cv)
   
   for(j in 1:L_bins) {
     bin_lower <- length_bins$length_bins[j]
@@ -136,8 +154,7 @@ build_recruit_distribution <- function(input, length_bins, growth_params = get_g
 }
 
 make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
-                               growth_params, bin_width, growth_cv_input,
-                               growth_cv_effective) {
+                               growth_params, bin_width, growth_cv_input) {
   Growth_matrix <- matrix(0, nrow = L_bins, ncol = L_bins)
   
   for(i in 1:L_bins) {
@@ -148,7 +165,6 @@ make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
     # von Bertalanffy annual increment
     growth_increment <- (Linf - current_length) * (1 - exp(-K))
     growth_increment <- max(0.1, growth_increment)
-    
     expected_length <- current_length + growth_increment
     
     # === deterministic case when growth_cv == 0 (age cohort approach) ===
@@ -161,7 +177,7 @@ make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
     }
     
     # === stochastic case (normal distribution) ===
-    growth_sd <- max(1, growth_increment * growth_cv_effective, bin_width * 0.15)
+    growth_sd <- max(1, growth_increment * growth_cv_input, bin_width * 0.15)
     
     # handle fish at/near Linf
     if(current_length >= Linf * 0.99) {
@@ -187,7 +203,7 @@ make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
   Growth_matrix
 }
 
-build_growth_matrix <- function(input, length_bins, growth_params = get_growth_params(input), growth_cv_effective) {
+build_growth_matrix <- function(input, length_bins, growth_params = get_growth_params(input)) {
   make_growth_matrix(
     L_bins = length_bins$L_bins,
     bin_midpoints = length_bins$bin_midpoints,
@@ -195,21 +211,13 @@ build_growth_matrix <- function(input, length_bins, growth_params = get_growth_p
     bin_uppers = length_bins$bin_uppers,
     growth_params = growth_params,
     bin_width = length_bins$bin_width,
-    growth_cv_input = input$growth_cv,
-    growth_cv_effective = growth_cv_effective
+    growth_cv_input = input$growth_cv
   )
-}
-
-bh_params <- function(h, Ro, SSB0) {
-  inv <- 1 / max(1, SSB0 * (1 - h))
-  list(alpha = 4 * h * Ro * inv,
-       beta  = (5 * h - 1) * inv)
 }
 
 build_static_components <- function(input, growth_params = get_growth_params(input)) {
   length_bins <- build_length_bins(input, growth_params = growth_params)
-  growth_cv_effective <- if (input$growth_cv == 0) 0.001 else input$growth_cv
-  
+
   vulnerabilities <- build_vulnerability_curves(input, length_bins$bin_midpoints)
   mortality <- build_mortality(input, length_bins)
   
@@ -225,15 +233,13 @@ build_static_components <- function(input, growth_params = get_growth_params(inp
   Growth_matrix <- build_growth_matrix(
     input = input,
     length_bins = length_bins,
-    growth_params = growth_params,
-    growth_cv_effective = growth_cv_effective
+    growth_params = growth_params
   )
-  
+
   recruit_dist <- build_recruit_distribution(
     input = input,
     length_bins = length_bins,
-    growth_params = growth_params,
-    growth_cv_effective = growth_cv_effective
+    growth_params = growth_params
   )
   
   list(
@@ -244,18 +250,18 @@ build_static_components <- function(input, growth_params = get_growth_params(inp
     Vulcap_bins = vulnerabilities$Vulcap_bins,
     Vulharv_bins = vulnerabilities$Vulharv_bins,
     trophyvul_bins = vulnerabilities$trophyvul_bins,
+    M_bins = mortality$M_bins,
     S_bins = mortality$S_bins,
     Unfished_survival_bins = mortality$Unfished_survival_bins,
     Growth_matrix = Growth_matrix,
-    recruit_dist = recruit_dist,
-    growth_cv_effective = growth_cv_effective
+    recruit_dist = recruit_dist
   )
 }
 
 simulate_population <- function(U, static, params) {
   L_bins <- static$length_bins$L_bins
   bin_midpoints <- static$length_bins$bin_midpoints
-  
+
   Amax <- params$Amax
   burn_in_years <- params$burn_in_years
   Ymax <- params$Ymax
@@ -271,14 +277,19 @@ simulate_population <- function(U, static, params) {
   Wt_bins <- static$Wt_bins
   maturity_ogive_bins <- static$maturity_ogive_bins
   Fec_bins <- static$Fec_bins
+  M_bins <- static$M_bins
   S_bins <- static$S_bins
   Unfished_survival_bins <- static$Unfished_survival_bins
   Growth_matrix <- static$Growth_matrix
   recruit_dist <- static$recruit_dist
-  
+
+  stopifnot(all(abs(rowSums(Growth_matrix) - 1) < 1e-6))
+  stopifnot(all(M_bins <= exp(1)))
+  stopifnot(all(S_bins > 0 & S_bins <= 1))
+
   F_bins <- Vulharv_bins * U
   Release_mort_bins <- (Vulcap_bins - Vulharv_bins) * U * DisMort
-  Survival_bins <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
+  S_fished <- S_bins * (1 - F_bins) * (1 - Release_mort_bins)
   
   YPR <- matrix(0, nrow = Ymax, ncol = params$nsim)
   SPRt <- matrix(0, nrow = Ymax, ncol = params$nsim)
@@ -290,162 +301,135 @@ simulate_population <- function(U, static, params) {
   all_Abundance <- matrix(0, nrow = L_bins, ncol = params$nsim)
   all_AgeAbund <- matrix(0, nrow = Amax, ncol = params$nsim)
   
-  burn_in_span <- min(burn_in_years, Ymax)
-  
+  burn_in_span <- burn_in_years
+
   for(k in 1:params$nsim) {
     if (!is.null(params$progress)) {
       params$progress(1 / params$nsim,
                       detail = paste("Simulation", k, "of", params$nsim))
     }
-    Cohort <- matrix(0, nrow = Amax, ncol = L_bins)
-    Cohort[1, ] <- Ro * recruit_dist
-    
-    N[1, ] <- colSums(Cohort)
-    
+    age_len <- matrix(0, nrow = Amax, ncol = L_bins)
+    age_len[1, ] <- Ro * recruit_dist
+
+    N[1, ] <- colSums(age_len)
+
     SSB_burnin <- rep(NA_real_, burn_in_span)
     SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
-    
-    if (isTRUE(params$enable_ddr)) {
-      alpha_beta <- NULL
-      # placeholder to avoid R CMD check notes when unused without DDR
-    }
-    
+
     for(t in 2:burn_in_span) {
+      age_survive <- age_len * matrix(Unfished_survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
+
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
-      for(a in Amax:2) {
-        survivors <- Cohort[a - 1, ] * Unfished_survival_bins
-        newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
+      for(a in 1:(Amax - 1)) {
+        grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
+        newCohort[a + 1, ] <- grown
       }
-      
-      R <- Ro
-      if (isTRUE(params$enable_ddr)) {
-        if (is.null(alpha_beta)) {
-          alpha_beta <- bh_params(h = params$steepness, Ro = Ro, SSB0 = SSB_burnin[1])
-        }
-        R <- alpha_beta$alpha * SSB_burnin[t - 1] / (1 + alpha_beta$beta * SSB_burnin[t - 1])
-      }
-      if (isTRUE(params$enable_depensation) && isTRUE(params$enable_ddr)) {
-        depensation_threshold <- 0.2 * SSB_burnin[1]
-        if (SSB_burnin[t - 1] < depensation_threshold) {
-          R <- R * (SSB_burnin[t - 1] / depensation_threshold)^2
-        }
-      }
-      
-      # Add stochastic noise (or deterministic if rec_cv = 0)
-      if (params$rec_cv == 0) {
-        R <- max(0, R)
-      } else {
-        R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
-      }
-      newCohort[1, ] <- R * recruit_dist
-      
-      Cohort <- newCohort
-      N[t, ] <- colSums(Cohort)
+
+      newCohort[1, ] <- newCohort[1, ] + (Ro * rlnorm(1, 0, sigmaR)) * recruit_dist
+
+      age_len <- newCohort
+      N[t, ] <- colSums(age_len)
       SSB_burnin[t] <- sum(N[t, ] * Fec_bins)
+
+      stopifnot(all(N[t, ] >= 0))
+      stopifnot(all(age_len >= 0))
     }
-    
-    burn_in_window_start <- max(1, burn_in_span - 10 + 1)
-    SPR_denom <- mean(SSB_burnin[burn_in_window_start:burn_in_span], na.rm = TRUE)
+
+    burnin_start <- max(1, burn_in_span - 9)
+    SPR_denom <- mean(SSB_burnin[burnin_start:burn_in_span], na.rm = TRUE)
     SSB0 <- SPR_denom
-    
-    if (isTRUE(params$enable_ddr)) {
-      alpha_beta <- bh_params(h = params$steepness, Ro = Ro, SSB0 = SSB0)
-    }
-    
-    if (isTRUE(params$enable_ddr)) {
-      Rcapacity <- rep(NA_real_, Ymax)
-      Rcapacity[1:burn_in_span] <- Ro
-    } else {
-      # Traditional per-recruit: constant mean recruitment
+
+    Rcapacity <- rep(NA_real_, Ymax)
+    if (!isTRUE(params$enable_ddr)) {
       if (params$rec_cv == 0) {
-        # Deterministic recruitment when CV = 0
         Rcapacity <- rep(Ro, Ymax)
       } else {
-        # Stochastic recruitment with lognormal noise
-        Rcapacity <- Ro * rlnorm(Ymax, 0, sd = sigmaR)
+        Rcapacity <- Ro * rlnorm(Ymax, 0, sigmaR)
       }
     }
-    
+
     for(yr in 1:burn_in_span) {
-      Yield <- 0
       SSB_now <- sum(N[yr, ] * Fec_bins)
       SSBt[yr, k] <- SSB_now
       SPRt[yr, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       YPR[yr, k] <- 0
       Prop[yr, k] <- ifelse(sum(N[yr, ]) > 0, sum(trophyvul_bins * N[yr, ]) / sum(N[yr, ]), 0)
     }
-    
-    start_year <- min(burn_in_span + 1, Ymax)
+
+    start_year <- burn_in_span + 1
     for(t in start_year:Ymax) {
       if (isTRUE(params$enable_ddr)) {
-        if (t == start_year) {
-          Rcapacity[t] <- Rcapacity[t - 1]
+        SSB_prev <- sum(N[t - 1, ] * Fec_bins)
+        SSB_prev <- max(0, SSB_prev)
+        R_BH <- (4 * params$steepness * Ro * SSB_prev) /
+          (SSB0 * (1 - params$steepness) + (5 * params$steepness - 1) * SSB_prev)
+        R_BH <- max(1, R_BH)
+
+        if (isTRUE(params$enable_depensation) && SSB_prev < 0.2 * SSB0) {
+          depensation_factor <- (SSB_prev / (0.2 * SSB0))^2
+          R_BH <- R_BH * depensation_factor
+        }
+
+        if (params$rec_cv == 0) {
+          Rcapacity[t] <- max(1, R_BH)
         } else {
-          SSB_prev <- sum(N[t - 1, ] * Fec_bins)
-          if (!is.finite(SSB_prev) || SSB_prev < 0) SSB_prev <- 0
-          
-          if (is.na(SSB0) || !is.finite(SSB0) || SSB0 <= 0) SSB0 <- 1
-          
-          R_BH <- alpha_beta$alpha * SSB_prev / (1 + alpha_beta$beta * SSB_prev)
-          if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
-          
-          if (isTRUE(params$enable_depensation) && SSB_prev < 0.2 * SSB0) {
-            depensation_factor <- (SSB_prev / (0.2 * SSB0))^2
-            if (!is.finite(depensation_factor) || depensation_factor < 0) depensation_factor <- 0
-            R_BH <- R_BH * depensation_factor
-          }
-          
-          if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
-          
-          # Add stochastic noise (or deterministic if rec_cv = 0)
-          if (params$rec_cv == 0) {
-            Rcapacity[t] <- max(1, R_BH)
-          } else {
-            Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
-          }
+          Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sigmaR))
         }
       }
-      
+
+      R_now <- Rcapacity[t]
+
+      age_survive <- age_len * matrix(S_fished, nrow = Amax, ncol = L_bins, byrow = TRUE)
+
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
-      for(a in Amax:2) {
-        survivors <- Cohort[a - 1, ] * Survival_bins
-        newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
+      for(a in 1:(Amax - 1)) {
+        grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
+        newCohort[a + 1, ] <- grown
       }
-      
-      newCohort[1, ] <- Rcapacity[t] * recruit_dist
-      
-      Cohort <- newCohort
-      N[t, ] <- colSums(Cohort)
-      
-      Yield_weight <- sum(Wt_bins * Vulharv_bins * N[t, ]) * U
-      SSB_now <- sum(N[t, ] * Fec_bins)
-      Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
-      
-      YPR[t, k] <- Yield_weight / Ro
+
+      newCohort[1, ] <- newCohort[1, ] + R_now * recruit_dist
+
+      age_len <- newCohort
+      N[t, ] <- colSums(age_len)
+
+      stopifnot(all(N[t, ] >= 0))
+      stopifnot(all(age_len >= 0))
+
+      lf_a <- N[t, ]
+      yield_t <- sum(F_bins * Wt_bins * lf_a)
+      SSB_now <- sum(lf_a * Fec_bins)
+
+      YPR[t, k] <- yield_t / R_now
       SSBt[t, k] <- SSB_now
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
-      Prop[t, k] <- Trophy_prop
-      
-      harvest_by_bin <- N[t, ] * Vulharv_bins * U
-      harvest_total <- sum(harvest_by_bin)
+      Prop[t, k] <- sum(lf_a * trophyvul_bins) / max(1, sum(lf_a))
+
+      # EXACT length.R behavior
+      harvest_by_bin <- lf_a * Vulharv_bins
+      rounded_counts <- round(harvest_by_bin)
+      harvest_total <- sum(rounded_counts)
       mean_harvest_length[t, k] <- if (harvest_total > 0) {
-        sum(harvest_by_bin * bin_midpoints) / harvest_total
+        sum(bin_midpoints * rounded_counts) / harvest_total
       } else {
         NA_real_
       }
-      
-      
+
+
     }
     
     results <- data.frame(
-      YPR = YPR[Ymax, k],
-      SPR = SPRt[Ymax, k],
-      Prop = Prop[Ymax, k],
-      Recruit = sum(Cohort)
+      YPR = mean(YPR[(Ymax - 49):Ymax, k], na.rm = TRUE),
+      SPR = mean(SPRt[(Ymax - 49):Ymax, k], na.rm = TRUE),
+      Prop = mean(Prop[(Ymax - 49):Ymax, k], na.rm = TRUE),
+      Recruit = sum(age_len)
     )
-    
-    last_50_start <- max(start_year, Ymax - 49)
-    results$MeanLengthHarvested <- mean(mean_harvest_length[last_50_start:Ymax, k], na.rm = TRUE)
+
+    results$MeanLengthHarvested <- mean(mean_harvest_length[(Ymax - 49):Ymax, k], na.rm = TRUE)
+
+    stopifnot(is.finite(results$YPR))
+    stopifnot(is.finite(results$SPR))
+    stopifnot(is.finite(results$Prop))
+    stopifnot(is.finite(results$MeanLengthHarvested))
     
     if (k == 1) {
       results_accum <- results
@@ -459,7 +443,7 @@ simulate_population <- function(U, static, params) {
       all_Prop[, k] <- Prop[, k]
       all_SSB[, k] <- SSBt[, k]
       all_Abundance[, k] <- N[Ymax, ]
-      all_AgeAbund[, k] <- rowSums(Cohort)
+      all_AgeAbund[, k] <- rowSums(age_len)
     }
   }
   
@@ -601,8 +585,8 @@ run_population_simulation <- function(
     store_details = TRUE,
     progress_cb = NULL
 ) {
-  burn_in_years <- min(input$ymax, max(20, input$amax + 20))
-  Ymax_val <- input$ymax
+  burn_in_years <- input$amax + 20
+  Ymax_val <- input$amax + 20 + 100
   
   params <- list(
     Amax              = input$amax,
@@ -630,8 +614,8 @@ run_yield_curve_simulation <- function(
     nsim,
     progress_cb = NULL
 ) {
-  burn_in_years <- min(input$ymax, max(20, input$amax + 20))
-  Ymax_val <- input$ymax
+  burn_in_years <- input$amax + 20
+  Ymax_val <- input$amax + 20 + 100
   
   params <- list(
     Amax              = input$amax,
