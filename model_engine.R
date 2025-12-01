@@ -116,8 +116,16 @@ build_fecundity <- function(input, growth_params) {
 
 build_recruit_distribution <- function(input, length_bins, growth_params = get_growth_params(input), growth_cv_effective) {
   age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
+
+  if (growth_cv_effective == 0) {
+    closest_bin <- which.min(abs(length_bins$bin_midpoints - age1_mean_length))
+    recruit_dist <- rep(0, length(length_bins$length_bins) - 1)
+    recruit_dist[closest_bin] <- 1.0
+    return(recruit_dist)
+  }
+
   age1_sd_length <- max(0.5, age1_mean_length * growth_cv_effective)
-  
+
   L_bins <- length(length_bins$length_bins) - 1
   recruit_dist <- rep(0, L_bins)
   for(j in 1:L_bins) {
@@ -126,14 +134,14 @@ build_recruit_distribution <- function(input, length_bins, growth_params = get_g
     prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
     recruit_dist[j] <- max(0, prob)
   }
-  
+
   if (sum(recruit_dist) > 0) {
     recruit_dist <- recruit_dist / sum(recruit_dist)
   } else {
     closest_bin <- which.min(abs(length_bins$bin_midpoints - age1_mean_length))
     recruit_dist[closest_bin] <- 1.0
   }
-  
+
   recruit_dist
 }
 
@@ -146,22 +154,23 @@ make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
     current_length <- bin_midpoints[i]
     K <- growth_params$vbk
     Linf <- growth_params$Linf
-    
+
+    # === deterministic case when growth_cv == 0 ===
+    if (growth_cv_input == 0) {
+      next_length <- Linf * (1 - exp(-K)) + current_length * exp(-K)
+      deterministic_bin <- which.min(abs(bin_midpoints - next_length))
+
+      Growth_matrix[i, ] <- 0
+      Growth_matrix[i, deterministic_bin] <- 1
+      next  # skip stochastic code
+    }
+
     # von Bertalanffy annual increment
     growth_increment <- (Linf - current_length) * (1 - exp(-K))
     growth_increment <- max(0.1, growth_increment)
-    
+
     expected_length <- current_length + growth_increment
-    
-    # === deterministic case when growth_cv == 0 ===
-    if (growth_cv_input == 0) {
-      next_bin <- which.min(abs(bin_midpoints - expected_length))
-      
-      Growth_matrix[i, ] <- 0
-      Growth_matrix[i, next_bin] <- 1
-      next  # skip stochastic code
-    }
-    
+
     # === stochastic case (normal distribution) ===
     growth_sd <- max(1, growth_increment * growth_cv_effective, bin_width * 0.15)
     
@@ -210,7 +219,7 @@ bh_params <- function(h, Ro, SSB0) {
 
 build_static_components <- function(input, growth_params = get_growth_params(input)) {
   length_bins <- build_length_bins(input, growth_params = growth_params)
-  growth_cv_effective <- if (input$growth_cv == 0) 0.001 else input$growth_cv
+  growth_cv_effective <- if (input$growth_cv == 0) 0 else input$growth_cv
   
   vulnerabilities <- build_vulnerability_curves(input, length_bins$bin_midpoints)
   mortality <- build_mortality(input, length_bins)
@@ -287,6 +296,7 @@ simulate_population <- function(U, static, params) {
   Prop <- matrix(0, nrow = Ymax, ncol = params$nsim)
   SSBt <- matrix(0, nrow = Ymax, ncol = params$nsim)
   mean_harvest_length <- matrix(NA_real_, nrow = Ymax, ncol = params$nsim)
+  all_harvest_lengths <- vector("list", params$nsim)
   N <- matrix(0, nrow = Ymax, ncol = L_bins)
   all_YPR <- all_SPR <- all_Prop <- all_SSB <- matrix(0, nrow = Ymax, ncol = params$nsim)
   all_Abundance <- matrix(0, nrow = L_bins, ncol = params$nsim)
@@ -301,7 +311,7 @@ simulate_population <- function(U, static, params) {
     }
     Cohort <- matrix(0, nrow = Amax, ncol = L_bins)
     Cohort[1, ] <- Ro * recruit_dist
-    
+
     N[1, ] <- colSums(Cohort)
     
     SSB_burnin <- rep(NA_real_, burn_in_span)
@@ -364,8 +374,9 @@ simulate_population <- function(U, static, params) {
       YPR[yr, k] <- 0
       Prop[yr, k] <- ifelse(sum(N[yr, ]) > 0, sum(trophyvul_bins * N[yr, ]) / sum(N[yr, ]), 0)
     }
-    
+
     start_year <- min(burn_in_span + 1, Ymax)
+    harvest_lengths_for_sim <- numeric(0)
     for(t in start_year:Ymax) {
       if (isTRUE(params$enable_ddr)) {
         if (t == start_year) {
@@ -390,23 +401,30 @@ simulate_population <- function(U, static, params) {
           Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
         }
       }
-      
+
       newCohort <- matrix(0, nrow = Amax, ncol = L_bins)
+      harvest <- matrix(0, nrow = Amax, ncol = L_bins)
       for(a in Amax:2) {
         survivors <- Cohort[a - 1, ] * Survival_bins
+        harvest_row <- Cohort[a - 1, ] * Vulharv_bins * U
+        harvest[a - 1, ] <- harvest_row
         newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
       }
-      
+
       newCohort[1, ] <- Rcapacity[t] * recruit_dist
-      
+
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
-      
+
+      harvest_by_length <- colSums(harvest)
+      harvest_lengths_expanded <- rep(bin_midpoints, times = round(harvest_by_length))
+      harvest_lengths_for_sim <- c(harvest_lengths_for_sim, harvest_lengths_expanded)
+
       Yield_weight <- sum(Wt_bins * Vulharv_bins * N[t, ]) * U
       SSB_now <- sum(N[t, ] * Wt_bins * maturity_ogive_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
-      YPR[t, k] <- Yield_weight / Ro
+      YPR[t, k] <- Yield_weight / max(1, Rcapacity[t])
       SSBt[t, k] <- SSB_now
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- Trophy_prop
@@ -446,6 +464,8 @@ simulate_population <- function(U, static, params) {
       all_Abundance[, k] <- N[Ymax, ]
       all_AgeAbund[, k] <- rowSums(Cohort)
     }
+
+    all_harvest_lengths[[k]] <- harvest_lengths_for_sim
   }
   
   ts_data <- NULL
@@ -511,7 +531,8 @@ simulate_population <- function(U, static, params) {
   list(
     results = results_accum,
     time_series = ts_data,
-    pop_structure = pop_structure
+    pop_structure = pop_structure,
+    harvest_lengths = all_harvest_lengths
   )
 }
 

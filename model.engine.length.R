@@ -85,8 +85,16 @@ build_fecundity <- function(input, Wt_bins, maturity_ogive_bins) {
 
 build_recruit_distribution <- function(input, length_bins, growth_params = get_growth_params(input), growth_cv_effective) {
   age1_mean_length <- growth_params$Linf * (1 - exp(-growth_params$vbk * (1 - growth_params$t0)))
+
+  if (growth_cv_effective == 0) {
+    closest_bin <- which.min(abs(length_bins$bin_midpoints - age1_mean_length))
+    recruit_dist <- rep(0, length(length_bins$length_bins) - 1)
+    recruit_dist[closest_bin] <- 1.0
+    return(recruit_dist)
+  }
+
   age1_sd_length <- max(0.5, age1_mean_length * growth_cv_effective)
-  
+
   L_bins <- length(length_bins$length_bins) - 1
   recruit_dist <- rep(0, L_bins)
   for(j in 1:L_bins) {
@@ -95,14 +103,14 @@ build_recruit_distribution <- function(input, length_bins, growth_params = get_g
     prob <- pnorm(bin_upper, age1_mean_length, age1_sd_length) - pnorm(bin_lower, age1_mean_length, age1_sd_length)
     recruit_dist[j] <- max(0, prob)
   }
-  
+
   if (sum(recruit_dist) > 0) {
     recruit_dist <- recruit_dist / sum(recruit_dist)
   } else {
     closest_bin <- which.min(abs(length_bins$bin_midpoints - age1_mean_length))
     recruit_dist[closest_bin] <- 1.0
   }
-  
+
   recruit_dist
 }
 
@@ -115,22 +123,23 @@ make_growth_matrix <- function(L_bins, bin_midpoints, bin_lowers, bin_uppers,
     current_length <- bin_midpoints[i]
     K <- growth_params$vbk
     Linf <- growth_params$Linf
-    
+
+    # === deterministic case when growth_cv == 0 ===
+    if (growth_cv_input == 0) {
+      next_length <- Linf * (1 - exp(-K)) + current_length * exp(-K)
+      deterministic_bin <- which.min(abs(bin_midpoints - next_length))
+
+      Growth_matrix[i, ] <- 0
+      Growth_matrix[i, deterministic_bin] <- 1
+      next  # skip stochastic code
+    }
+
     # von Bertalanffy annual increment
     growth_increment <- (Linf - current_length) * (1 - exp(-K))
     growth_increment <- max(0.1, growth_increment)
-    
+
     expected_length <- current_length + growth_increment
-    
-    # === deterministic case when growth_cv == 0 ===
-    if (growth_cv_input == 0) {
-      next_bin <- which.min(abs(bin_midpoints - expected_length))
-      
-      Growth_matrix[i, ] <- 0
-      Growth_matrix[i, next_bin] <- 1
-      next  # skip stochastic code
-    }
-    
+
     # === stochastic case (normal distribution) ===
     growth_sd <- max(1, growth_increment * growth_cv_effective, bin_width * 0.15)
     
@@ -179,7 +188,7 @@ bh_params <- function(h, Ro, SSB0) {
 
 build_static_components <- function(input, growth_params = get_growth_params(input)) {
   length_bins <- build_length_bins(input, growth_params = growth_params)
-  growth_cv_effective <- if (input$growth_cv == 0) 0.001 else input$growth_cv
+  growth_cv_effective <- if (input$growth_cv == 0) 0 else input$growth_cv
   
   vulnerabilities <- build_vulnerability_curves(input, length_bins$bin_midpoints)
   mortality <- build_mortality(input, length_bins)
@@ -366,7 +375,7 @@ simulate_population <- function(U, static, params) {
       SSB_now <- compute_ssb(N[t, ], Fec_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
-      YPR[t, k] <- Yield_weight / Ro
+      YPR[t, k] <- Yield_weight / max(1, Rcapacity[t])
       SSBt[t, k] <- SSB_now
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- Trophy_prop
@@ -521,7 +530,7 @@ simulate_yield_curve <- function(static, params) {
     curve_results$Recruit_mean[u_idx] <- mean(res$Recruit, na.rm = TRUE)
     curve_results$Recruit_sd[u_idx] <- sd(res$Recruit, na.rm = TRUE)
     
-    total_yield_vals <- res$YPR * params$Ro
+    total_yield_vals <- res$YPR * res$Recruit
     curve_results$TotalYield_mean[u_idx] <- mean(total_yield_vals, na.rm = TRUE)
     curve_results$TotalYield_sd[u_idx] <- sd(total_yield_vals, na.rm = TRUE)
   }
