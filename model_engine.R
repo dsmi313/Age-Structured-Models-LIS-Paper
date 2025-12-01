@@ -289,6 +289,7 @@ simulate_population <- function(U, static, params) {
   all_YPR <- all_SPR <- all_Prop <- all_SSB <- matrix(0, nrow = Ymax, ncol = params$nsim)
   all_Abundance <- matrix(0, nrow = L_bins, ncol = params$nsim)
   all_AgeAbund <- matrix(0, nrow = Amax, ncol = params$nsim)
+  all_Recruit <- matrix(0, nrow = Ymax, ncol = params$nsim)
   
   burn_in_span <- min(burn_in_years, Ymax)
   
@@ -316,21 +317,10 @@ simulate_population <- function(U, static, params) {
         survivors <- Cohort[a - 1, ] * Unfished_survival_bins
         newCohort[a, ] <- as.vector(survivors %*% Growth_matrix)
       }
-      
+
+      # BURN-IN: Always use R0 (no DDR) to establish unfished equilibrium
       R <- Ro
-      if (isTRUE(params$enable_ddr)) {
-        if (is.null(alpha_beta)) {
-          alpha_beta <- bh_params(h = params$steepness, Ro = Ro, SSB0 = SSB_burnin[1])
-        }
-        R <- alpha_beta$alpha * SSB_burnin[t - 1] / (1 + alpha_beta$beta * SSB_burnin[t - 1])
-      }
-      if (isTRUE(params$enable_depensation) && isTRUE(params$enable_ddr)) {
-        depensation_threshold <- 0.2 * SSB_burnin[1]
-        if (SSB_burnin[t - 1] < depensation_threshold) {
-          R <- R * (SSB_burnin[t - 1] / depensation_threshold)^2
-        }
-      }
-      
+
       # Add stochastic noise (or deterministic if rec_cv = 0)
       if (params$rec_cv == 0) {
         R <- max(0, R)
@@ -338,7 +328,7 @@ simulate_population <- function(U, static, params) {
         R <- max(0, rlnorm(1, meanlog = log(R) - 0.5 * sigmaR^2, sdlog = sigmaR))
       }
       newCohort[1, ] <- R * recruit_dist
-      
+
       Cohort <- newCohort
       N[t, ] <- colSums(Cohort)
       SSB_burnin[t] <- sum(N[t, ] * Fec_bins)
@@ -354,7 +344,6 @@ simulate_population <- function(U, static, params) {
     
     if (isTRUE(params$enable_ddr)) {
       Rcapacity <- rep(NA_real_, Ymax)
-      Rcapacity[1:burn_in_span] <- Ro
     } else {
       # Traditional per-recruit: constant mean recruitment
       if (params$rec_cv == 0) {
@@ -378,31 +367,27 @@ simulate_population <- function(U, static, params) {
     start_year <- min(burn_in_span + 1, Ymax)
     for(t in start_year:Ymax) {
       if (isTRUE(params$enable_ddr)) {
-        if (t == start_year) {
-          Rcapacity[t] <- Rcapacity[t - 1]
+        SSB_prev <- sum(N[t - 1, ] * Fec_bins)
+        if (!is.finite(SSB_prev) || SSB_prev < 0) SSB_prev <- 0
+
+        if (is.na(SSB0) || !is.finite(SSB0) || SSB0 <= 0) SSB0 <- 1
+
+        R_BH <- alpha_beta$alpha * SSB_prev / (1 + alpha_beta$beta * SSB_prev)
+        if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
+
+        if (isTRUE(params$enable_depensation) && SSB_prev < 0.2 * SSB0) {
+          depensation_factor <- (SSB_prev / (0.2 * SSB0))^2
+          if (!is.finite(depensation_factor) || depensation_factor < 0) depensation_factor <- 0
+          R_BH <- R_BH * depensation_factor
+        }
+
+        if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
+
+        # Add stochastic noise (or deterministic if rec_cv = 0)
+        if (params$rec_cv == 0) {
+          Rcapacity[t] <- max(1, R_BH)
         } else {
-          SSB_prev <- sum(N[t - 1, ] * Fec_bins)
-          if (!is.finite(SSB_prev) || SSB_prev < 0) SSB_prev <- 0
-          
-          if (is.na(SSB0) || !is.finite(SSB0) || SSB0 <= 0) SSB0 <- 1
-          
-          R_BH <- alpha_beta$alpha * SSB_prev / (1 + alpha_beta$beta * SSB_prev)
-          if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
-          
-          if (isTRUE(params$enable_depensation) && SSB_prev < 0.2 * SSB0) {
-            depensation_factor <- (SSB_prev / (0.2 * SSB0))^2
-            if (!is.finite(depensation_factor) || depensation_factor < 0) depensation_factor <- 0
-            R_BH <- R_BH * depensation_factor
-          }
-          
-          if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
-          
-          # Add stochastic noise (or deterministic if rec_cv = 0)
-          if (params$rec_cv == 0) {
-            Rcapacity[t] <- max(1, R_BH)
-          } else {
-            Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
-          }
+          Rcapacity[t] <- max(1, R_BH * rlnorm(1, 0, sd = sigmaR))
         }
       }
       
@@ -421,7 +406,7 @@ simulate_population <- function(U, static, params) {
       SSB_now <- sum(N[t, ] * Fec_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
-      YPR[t, k] <- Yield_weight / Ro
+      YPR[t, k] <- Yield_weight / max(1, Rcapacity[t])
       SSBt[t, k] <- SSB_now
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- Trophy_prop
@@ -436,15 +421,15 @@ simulate_population <- function(U, static, params) {
       
       
     }
-    
-    results <- data.frame(
-      YPR = YPR[Ymax, k],
-      SPR = SPRt[Ymax, k],
-      Prop = Prop[Ymax, k],
-      Recruit = sum(Cohort)
-    )
-    
+
     last_50_start <- max(start_year, Ymax - 49)
+    all_Recruit[, k] <- Rcapacity
+    results <- data.frame(
+      YPR = mean(YPR[last_50_start:Ymax, k], na.rm = TRUE),
+      SPR = mean(SPRt[last_50_start:Ymax, k], na.rm = TRUE),
+      Prop = mean(Prop[last_50_start:Ymax, k], na.rm = TRUE),
+      Recruit = mean(Rcapacity[last_50_start:Ymax], na.rm = TRUE)
+    )
     results$MeanLengthHarvested <- mean(mean_harvest_length[last_50_start:Ymax, k], na.rm = TRUE)
     
     if (k == 1) {
