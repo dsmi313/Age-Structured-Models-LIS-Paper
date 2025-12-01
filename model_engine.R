@@ -390,7 +390,8 @@ simulate_population <- function(U, static, params) {
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- sum(lf_a * trophyvul_bins) / max(1, sum(lf_a))
 
-      harvest_by_bin <- lf_a * Vulharv_bins * U
+      # EXACT length.R behavior
+      harvest_by_bin <- lf_a * Vulharv_bins
       rounded_counts <- round(harvest_by_bin)
       harvest_total <- sum(rounded_counts)
       mean_harvest_length[t, k] <- if (harvest_total > 0) {
