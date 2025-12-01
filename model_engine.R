@@ -406,7 +406,7 @@ simulate_population <- function(U, static, params) {
       SSB_now <- sum(N[t, ] * Wt_bins * maturity_ogive_bins)
       Trophy_prop <- ifelse(sum(N[t, ]) > 0, sum(trophyvul_bins * N[t, ]) / sum(N[t, ]), 0)
       
-      YPR[t, k] <- Yield_weight / Ro
+      YPR[t, k] <- Yield_weight / max(1, Rcapacity[t])
       SSBt[t, k] <- SSB_now
       SPRt[t, k] <- if (SPR_denom > 0) SSB_now / SPR_denom else 0
       Prop[t, k] <- Trophy_prop
