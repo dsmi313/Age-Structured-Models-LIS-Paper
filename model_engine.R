@@ -201,7 +201,7 @@ build_growth_matrix <- function(input, length_bins, growth_params = get_growth_p
 }
 
 bh_params <- function(h, Ro, SSB0) {
-  inv <- 1 / max(1, SSB0 * (1 - h))
+  inv <- 1 / (SSB0 * (1 - h))
   list(alpha = 4 * h * Ro * inv,
        beta  = (5 * h - 1) * inv)
 }
@@ -366,8 +366,6 @@ simulate_population <- function(U, static, params) {
       if (isTRUE(params$enable_ddr)) {
         SSB_prev <- sum(N[t - 1, ] * Fec_bins)
         if (!is.finite(SSB_prev) || SSB_prev < 0) SSB_prev <- 0
-        
-        if (is.na(SSB0) || !is.finite(SSB0) || SSB0 <= 0) SSB0 <- 1
         
         R_BH <- alpha_beta$alpha * SSB_prev / (1 + alpha_beta$beta * SSB_prev)
         if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
@@ -612,8 +610,9 @@ run_yield_curve_simulation <- function(
     nsim,
     progress_cb = NULL
 ) {
-  burn_in_years <- min(input$ymax, max(20, input$amax + 20))
-  Ymax_val <- input$ymax
+  # Use fixed 100-year fishing period for yield curves (matches length.R)
+  burn_in_years <- input$amax + 20
+  Ymax_val <- burn_in_years + 100
   
   params <- list(
     Amax              = input$amax,
