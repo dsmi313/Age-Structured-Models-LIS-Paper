@@ -610,8 +610,9 @@ run_yield_curve_simulation <- function(
     nsim,
     progress_cb = NULL
 ) {
-  burn_in_years <- min(input$ymax, max(20, input$amax + 20))
-  Ymax_val <- input$ymax
+  # Use fixed 100-year fishing period for yield curves (matches length.R)
+  burn_in_years <- input$amax + 20
+  Ymax_val <- burn_in_years + 100
   
   params <- list(
     Amax              = input$amax,
