@@ -1815,28 +1815,41 @@ server <- function(input, output, session) {
         recruit_vals <- numeric(nsim)
         
         for(k in 1:nsim) {
-          # Initialize length-structured population matrix
-          N <- matrix(0, nrow = Ymax_yield, ncol = L_bins)
+          # Initialize AGE-LENGTH structured population matrix
+          N <- matrix(0, Ymax_yield, L_bins)  # Abundance by year and length bin
+          age_len <- matrix(0, Amax, L_bins)  # Track cohorts by age across length bins
           YPR <- rep(NA, Ymax_yield)
           SPRt <- rep(NA, Ymax_yield)
           Prop <- rep(NA, Ymax_yield)
           
-          # Set initial population structure
-          N[1, ] <- Ro * recruit_dist
+          # Set initial population structure (UNFISHED equilibrium in length bins)
+          # Start with recruitment distributed across length bins
+          age_len[1, ] <- Ro * recruit_dist
+          N[1, ] <- colSums(age_len)
           
-          # Build UNFISHED equilibrium over burn-in window (establish baseline for SPR)
+          # Track SSB during burn-in for SPR baseline
           SSB_burnin <- rep(NA, burnin_yield)
           SSB_burnin[1] <- sum(N[1, ] * Fec_bins)
+          
+          # Build UNFISHED equilibrium over the burn-in window (establish baseline for SPR)
           for(init_year in 2:burnin_yield) {
-            # Apply UNFISHED survival (natural mortality only, NO fishing)
-            N_survive <- N[init_year-1, ] * Unfished_survival_bins
+            # Apply UNFISHED survival (natural mortality only, NO fishing) by age
+            age_survive <- age_len * matrix(Unfished_survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
             
-            # Apply growth (move to new length bins)
-            N[init_year, ] <- as.vector(N_survive %*% Growth_matrix)
+            # Apply growth (move to new length bins) for each age, then increment age
+            new_age_len <- matrix(0, Amax, L_bins)
+            for(a in 1:(Amax - 1)) {
+              grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
+              new_age_len[a + 1, ] <- grown
+            }
             
             # Add stochastic recruitment (unfished populations still have recruitment variability)
-            N[init_year, ] <- N[init_year, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
+            new_age_len[1, ] <- new_age_len[1, ] + (Ro * rlnorm(1, 0, sd = sigmaR)) * recruit_dist
             
+            age_len <- new_age_len
+            N[init_year, ] <- colSums(age_len)
+            
+            # Track SSB for this burn-in year
             SSB_burnin[init_year] <- sum(N[init_year, ] * Fec_bins)
           }
           
@@ -1902,23 +1915,29 @@ server <- function(input, output, session) {
               }
             }
             
-            # Apply FISHED survival (includes fishing mortality)
-            N_survive <- N[i-1, ] * Survival_bins
+            # Apply survival to previous year's population by age
+            age_survive <- age_len * matrix(Survival_bins, nrow = Amax, ncol = L_bins, byrow = TRUE)
             
-            # Apply growth (move to new length bins)
-            N[i, ] <- as.vector(N_survive %*% Growth_matrix)
+            # Apply growth (transition to new length bins) and age the cohorts
+            new_age_len <- matrix(0, Amax, L_bins)
+            for(a in 1:(Amax - 1)) {
+              grown <- as.vector(age_survive[a, ] %*% Growth_matrix)
+              new_age_len[a + 1, ] <- grown
+            }
             
-            # Add recruitment
-            N[i, ] <- N[i, ] + Rcapacity[i] * recruit_dist
+            # Add stochastic recruitment distributed across length bins to age-1
+            new_age_len[1, ] <- new_age_len[1, ] + Rcapacity[i] * recruit_dist
             
-            # Calculate metrics
-            harvest_weight <- sum(Wt_harvest_bins * N[i, ])
-            fecundity_now <- sum(Fec_bins * N[i, ])
-            abundance_now <- max(1, sum(N[i, ]))  # Prevent division by zero
+            age_len <- new_age_len
+            N[i, ] <- colSums(age_len)
             
-            YPR[i] <- (harvest_weight * U_test) / max(1, Rcapacity[i])  # Prevent division by zero
-            SPRt[i] <- fecundity_now / SPR_denom
-            Prop[i] <- sum(trophyvul_bins * N[i, ]) / abundance_now
+            # Calculate annual metrics
+            Yield <- sum(Wt_bins * Vulharv_bins * N[i, ]) * U_test
+            SSBt_now <- sum(N[i, ] * Fec_bins)  # Spawning stock biomass
+            
+            YPR[i] <- Yield / max(1, Rcapacity[i])
+            SPRt[i] <- SSBt_now / SPR_denom
+            Prop[i] <- sum(trophyvul_bins * N[i, ]) / max(1, sum(N[i, ]))
           }
           
           # Use last 50 years of fished equilibrium for calculations
