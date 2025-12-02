@@ -201,7 +201,7 @@ build_growth_matrix <- function(input, length_bins, growth_params = get_growth_p
 }
 
 bh_params <- function(h, Ro, SSB0) {
-  inv <- 1 / max(1, SSB0 * (1 - h))
+  inv <- 1 / (SSB0 * (1 - h))
   list(alpha = 4 * h * Ro * inv,
        beta  = (5 * h - 1) * inv)
 }
