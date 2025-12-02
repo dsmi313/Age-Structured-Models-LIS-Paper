@@ -54,8 +54,12 @@ build_vulnerability_curves <- function(input, bin_midpoints) {
   } else {
     Vulharv_bins <- 1 / (1 + exp(-(bin_midpoints - Harvlim) / HarvlimSD))
   }
-  
-  Vulharv_bins[bin_midpoints < Harvlim] <- 0
+
+  # Only enforce minimum size limit for non-protective-slot regulations
+  # Protective slots allow harvest BELOW the minimum (and above the maximum)
+  if(!input$enable_slot || input$slot_type == "traditional") {
+    Vulharv_bins[bin_midpoints < Harvlim] <- 0
+  }
   
   trophyvul_bins <- (1 / (1 + exp(-(bin_midpoints - input$memorable_size) / (input$memorable_size * 0.1)))) * Vulcap_bins
   
