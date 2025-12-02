@@ -366,9 +366,7 @@ simulate_population <- function(U, static, params) {
       if (isTRUE(params$enable_ddr)) {
         SSB_prev <- sum(N[t - 1, ] * Fec_bins)
         if (!is.finite(SSB_prev) || SSB_prev < 0) SSB_prev <- 0
-        
-        if (is.na(SSB0) || !is.finite(SSB0) || SSB0 <= 0) SSB0 <- 1
-        
+
         R_BH <- alpha_beta$alpha * SSB_prev / (1 + alpha_beta$beta * SSB_prev)
         if (!is.finite(R_BH) || R_BH <= 0) R_BH <- 1
         
