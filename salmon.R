@@ -5,14 +5,53 @@ library(ggplot2)
 library(plotly)
 
 # ============================================================================
-# SALMON POPULATION MODEL ENGINE
+# CHINOOK SALMON POPULATION MODEL ENGINE
 # ============================================================================
-# This model is specifically designed for semelparous salmon populations.
-# Key differences from YPR/SPR models:
+# This model is specifically designed for Chinook salmon populations.
+# Key features:
 # - Brood-year dynamics (not equilibrium age structure)
-# - Age-at-return schedules (not continuous aging)
+# - Age-at-return schedules including jacks (ages 2-6)
 # - Terminal spawning (fish spawn once and die)
 # - Escapement-at-age outputs (not YPR/SPR metrics)
+# - Sex-specific dynamics (jacks are predominantly male)
+# - Ocean-type vs stream-type life histories
+# - Realistic age distributions based on empirical data
+# ============================================================================
+
+# Chinook Life History Presets
+# ============================================================================
+# Based on published literature and NOAA/state agency data (2024-2025)
+#
+# References:
+# - NOAA Fisheries Upper Columbia Spring Chinook Status (2024)
+# - Galbreath et al. (2022) Trans. Am. Fish. Soc. - Minijack maturation
+# - Yakima River Chinook studies - wild vs hatchery comparisons
+# - Age structure data from multiple Pacific Northwest populations
+#
+# Age-2 (minijacks): Precocious males, mature in freshwater
+#   - Wild populations: 1-5% (rare, ~4% in natural systems)
+#   - Hatchery populations: 20-40% (up to 71% in some programs)
+#   - Predominantly male alternative reproductive strategy
+#
+# Age-3 (jacks): Anadromous precocious males, 1 year at sea
+#   - Wild populations: 10-15% (~12% Yakima River wild-origin)
+#   - Hatchery populations: 20-30% (~26% Yakima River hatchery-origin)
+#   - Mostly males, spawn one year earlier than modal age
+#
+# Age-4: Dominant age class in many populations
+#   - Typically 30-50% of returns (modal age in many systems)
+#   - Both males and females
+#   - Often peak spawning age
+#
+# Age-5: Second most common
+#   - Typically 20-40% of returns
+#   - Both males and females
+#   - Important for population resilience
+#
+# Age-6: Older fish, less common
+#   - Typically 5-15% of returns (declining due to climate/fishing)
+#   - Higher proportion females
+#   - Important for fecundity and diversity
 # ============================================================================
 
 # Stock-Recruitment Functions
@@ -55,11 +94,45 @@ ricker_from_productivity <- function(R0, S0, productivity = 2.5) {
 }
 
 
-# Salmon Life Cycle Model
+# Chinook Life Cycle Model
 # ============================================================================
 
+#' Get preset age-at-return distributions for Chinook salmon
+#' @param preset_type character: "wild_ocean", "wild_stream", or "hatchery"
+#' @return list with ages and probabilities
+get_chinook_preset <- function(preset_type = "wild_ocean") {
+  presets <- list(
+    wild_ocean = list(
+      ages = c(2, 3, 4, 5, 6),
+      probs = c(0.02, 0.12, 0.45, 0.30, 0.11),
+      description = "Wild ocean-type: Low jacks, modal age-4"
+    ),
+    wild_stream = list(
+      ages = c(2, 3, 4, 5, 6),
+      probs = c(0.01, 0.10, 0.35, 0.40, 0.14),
+      description = "Wild stream-type: Low jacks, modal age-4/5"
+    ),
+    hatchery = list(
+      ages = c(2, 3, 4, 5, 6),
+      probs = c(0.25, 0.25, 0.35, 0.12, 0.03),
+      description = "Hatchery: High minijacks and jacks, younger distribution"
+    ),
+    custom = list(
+      ages = c(2, 3, 4, 5, 6),
+      probs = c(0.05, 0.15, 0.40, 0.30, 0.10),
+      description = "Custom: Modify age proportions manually"
+    )
+  )
+
+  if (!preset_type %in% names(presets)) {
+    preset_type <- "wild_ocean"
+  }
+
+  presets[[preset_type]]
+}
+
 #' Build age-at-return probability distribution
-#' @param ages vector of return ages (e.g., 3:5)
+#' @param ages vector of return ages (e.g., 2:6 for Chinook)
 #' @param probs vector of probabilities (must sum to 1)
 #' @return data frame with age and probability
 build_age_schedule <- function(ages, probs) {
@@ -322,16 +395,27 @@ calculate_equilibrium_metrics <- function(params) {
 # ============================================================================
 
 ui <- fluidPage(
-  titlePanel("Salmon Population Model: Brood-Year Dynamics"),
+  titlePanel("Chinook Salmon Population Model: Brood-Year Dynamics with Jacks"),
 
   sidebarLayout(
     sidebarPanel(
       h3("Model Parameters"),
       width = 3,
 
+      # Life History Type
+      h4("Life History Type"),
+      selectInput("life_history_preset", "Chinook Life History:",
+                  choices = c("Wild Ocean-Type" = "wild_ocean",
+                              "Wild Stream-Type" = "wild_stream",
+                              "Hatchery" = "hatchery",
+                              "Custom" = "custom"),
+                  selected = "wild_ocean"),
+      helpText(tags$small(tags$em("Presets based on empirical Chinook data. Choose 'Custom' to modify age proportions."))),
+      br(),
+
       # Life History Parameters
       h4("Life History"),
-      helpText("Salmon-specific biological parameters"),
+      helpText("Chinook-specific biological parameters"),
 
       numericInput("M_ocean", "Ocean Natural Mortality (M):",
                    value = 0.15, min = 0.05, max = 0.5, step = 0.01),
@@ -339,14 +423,22 @@ ui <- fluidPage(
 
       # Age-at-return schedule
       h4("Age-at-Return Schedule"),
-      helpText("Probability of returning to spawn at each age. Must sum to 1.0"),
+      helpText(HTML("<b>Age-2:</b> Minijacks (precocious males, mature in FW)<br>
+                     <b>Age-3:</b> Jacks (1 year at sea, mostly males)<br>
+                     <b>Age-4+:</b> Mature adults (both sexes)")),
+      br(),
+      helpText("Probabilities must sum to 1.0:"),
 
-      numericInput("prob_age3", "Age-3 Proportion:",
-                   value = 0.10, min = 0, max = 1, step = 0.05),
-      numericInput("prob_age4", "Age-4 Proportion:",
-                   value = 0.60, min = 0, max = 1, step = 0.05),
-      numericInput("prob_age5", "Age-5 Proportion:",
-                   value = 0.30, min = 0, max = 1, step = 0.05),
+      numericInput("prob_age2", "Age-2 (Minijacks):",
+                   value = 0.02, min = 0, max = 1, step = 0.01),
+      numericInput("prob_age3", "Age-3 (Jacks):",
+                   value = 0.12, min = 0, max = 1, step = 0.01),
+      numericInput("prob_age4", "Age-4:",
+                   value = 0.45, min = 0, max = 1, step = 0.01),
+      numericInput("prob_age5", "Age-5:",
+                   value = 0.30, min = 0, max = 1, step = 0.01),
+      numericInput("prob_age6", "Age-6:",
+                   value = 0.11, min = 0, max = 1, step = 0.01),
 
       textOutput("age_schedule_check"),
       br(),
@@ -471,9 +563,22 @@ server <- function(input, output, session) {
   results <- reactiveVal(NULL)
   scenarios <- reactiveVal(list())
 
+  # Update age inputs when preset is selected
+  observeEvent(input$life_history_preset, {
+    if (input$life_history_preset != "custom") {
+      preset <- get_chinook_preset(input$life_history_preset)
+      updateNumericInput(session, "prob_age2", value = preset$probs[1])
+      updateNumericInput(session, "prob_age3", value = preset$probs[2])
+      updateNumericInput(session, "prob_age4", value = preset$probs[3])
+      updateNumericInput(session, "prob_age5", value = preset$probs[4])
+      updateNumericInput(session, "prob_age6", value = preset$probs[5])
+    }
+  })
+
   # Check that age schedule sums to 1
   output$age_schedule_check <- renderText({
-    age_sum <- input$prob_age3 + input$prob_age4 + input$prob_age5
+    age_sum <- input$prob_age2 + input$prob_age3 + input$prob_age4 +
+               input$prob_age5 + input$prob_age6
     if (abs(age_sum - 1.0) > 0.01) {
       paste("WARNING: Probabilities sum to", round(age_sum, 3), "- should be 1.0")
     } else {
@@ -483,9 +588,10 @@ server <- function(input, output, session) {
 
   # Build parameter list from inputs
   build_params <- reactive({
-    # Age-at-return schedule
-    return_ages <- c(3, 4, 5)
-    age_probs <- c(input$prob_age3, input$prob_age4, input$prob_age5)
+    # Age-at-return schedule (Chinook ages 2-6)
+    return_ages <- c(2, 3, 4, 5, 6)
+    age_probs <- c(input$prob_age2, input$prob_age3, input$prob_age4,
+                   input$prob_age5, input$prob_age6)
     age_probs <- age_probs / sum(age_probs)  # normalize
 
     # Stock-recruitment parameters
